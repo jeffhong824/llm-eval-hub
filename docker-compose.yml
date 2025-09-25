@@ -20,7 +20,7 @@ services:
       - ./results:/app/results
       - ./artifacts:/app/artifacts
       - ./outputs:/app/outputs
-      - D:\workplace\project_management\my_github:/app/host_github
+      - .:/app/host_github
     depends_on:
       - db
       - redis
