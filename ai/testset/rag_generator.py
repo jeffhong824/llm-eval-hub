@@ -342,7 +342,18 @@ Return only the JSON array.
                 logger.info(f"Unix absolute path used as is: {final_output_path}")
             else:
                 # Relative path - map to host_github volume mount for Docker compatibility
-                final_output_path = Path('/app/host_github') / output_folder.lstrip('./')
+                # Handle both ./ and ../ relative paths
+                if output_folder.startswith('./'):
+                    # Remove ./ prefix
+                    relative_path = output_folder[2:]
+                elif output_folder.startswith('../'):
+                    # Keep ../ as is for parent directory access
+                    relative_path = output_folder
+                else:
+                    # No prefix, use as is
+                    relative_path = output_folder
+                
+                final_output_path = Path('/app/host_github') / relative_path
                 logger.info(f"Relative path mapped to host_github: {output_folder} -> {final_output_path}")
             
             final_output_path.mkdir(parents=True, exist_ok=True)
