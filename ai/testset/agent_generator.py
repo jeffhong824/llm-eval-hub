@@ -378,8 +378,14 @@ Return only the JSON array, no additional text.
                 final_output_path = Path(output_folder.replace('D:\\workplace\\project_management\\my_github', '/app/host_github'))
                 final_output_path = Path(str(final_output_path).replace('\\', '/'))
                 logger.info(f"Mapped Windows output path to Docker path: {final_output_path}")
-            else:
+            elif os.path.isabs(output_folder):
+                # Unix absolute path - use as is
                 final_output_path = Path(output_folder)
+                logger.info(f"Unix absolute path used as is: {final_output_path}")
+            else:
+                # Relative path - map to host_github volume mount for Docker compatibility
+                final_output_path = Path('/app/host_github') / output_folder.lstrip('./')
+                logger.info(f"Relative path mapped to host_github: {output_folder} -> {final_output_path}")
             
             final_output_path.mkdir(parents=True, exist_ok=True)
             

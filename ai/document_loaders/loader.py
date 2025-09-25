@@ -291,9 +291,10 @@ class DocumentProcessor:
             output_path = Path(output_folder)
             logger.info(f"Unix path used as is: {output_path}")
         else:
-            # Relative path - resolve from current working directory
-            output_path = Path(output_folder).resolve()
-            logger.info(f"Relative path resolved: {output_path}")
+            # Relative path - map to host_github volume mount for Docker compatibility
+            # This ensures relative paths are accessible from the host machine
+            output_path = Path('/app/host_github') / output_folder.lstrip('./')
+            logger.info(f"Relative path mapped to host_github: {output_folder} -> {output_path}")
         
         # Create output directory
         output_path.mkdir(parents=True, exist_ok=True)
