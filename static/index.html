@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Evaluation Hub</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .sidebar .nav-link {
+            color: rgba(255, 255, 255, 0.8);
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin: 4px 0;
+            transition: all 0.3s ease;
+        }
+        .sidebar .nav-link:hover, .sidebar .nav-link.active {
+            color: white;
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateX(5px);
+        }
+        .main-content {
+            background-color: #f8f9fa;
+            min-height: 100vh;
+        }
+        .card {
+            border: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 12px;
+        }
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 12px 12px 0 0 !important;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 8px;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .form-control, .form-select {
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+        .loading {
+            display: none;
+        }
+        .result-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 10px 0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .metric-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            margin: 2px;
+        }
+        .status-success {
+            color: #28a745;
+        }
+        .status-error {
+            color: #dc3545;
+        }
+        .status-processing {
+            color: #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-md-3 col-lg-2 sidebar p-0">
+                <div class="p-3">
+                    <h4 class="text-white mb-4">
+                        <i class="fas fa-brain me-2"></i>
+                        LLM Eval Hub
+                    </h4>
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="#dashboard" data-section="dashboard">
+                                <i class="fas fa-tachometer-alt me-2"></i>
+                                Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#scenario-to-docs" data-section="scenario-to-docs">
+                                <i class="fas fa-file-alt me-2"></i>
+                                Scenario to Docs
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#rag-testset" data-section="rag-testset">
+                                <i class="fas fa-search me-2"></i>
+                                RAG Testset
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#agent-testset" data-section="agent-testset">
+                                <i class="fas fa-robot me-2"></i>
+                                Agent Testset
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#evaluation" data-section="evaluation">
+                                <i class="fas fa-chart-line me-2"></i>
+                                Evaluation
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#results" data-section="results">
+                                <i class="fas fa-clipboard-list me-2"></i>
+                                Results
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main Content -->
+            <main class="col-md-9 col-lg-10 main-content">
+                <div class="p-4">
+                    <!-- Dashboard Section -->
+                    <div id="dashboard-section" class="content-section">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2><i class="fas fa-tachometer-alt me-2"></i>Dashboard</h2>
+                            <div class="loading">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-3 mb-3">
+                                <div class="card">
+                                    <div class="card-body text-center">
+                                        <i class="fas fa-file-alt fa-2x text-primary mb-2"></i>
+                                        <h5>Total Testsets</h5>
+                                        <h3 class="text-primary" id="total-testsets">0</h3>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <div class="card">
+                                    <div class="card-body text-center">
+                                        <i class="fas fa-chart-line fa-2x text-success mb-2"></i>
+                                        <h5>Evaluations</h5>
+                                        <h3 class="text-success" id="total-evaluations">0</h3>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <div class="card">
+                                    <div class="card-body text-center">
+                                        <i class="fas fa-brain fa-2x text-warning mb-2"></i>
+                                        <h5>Judge Models</h5>
+                                        <h3 class="text-warning" id="available-judges">4</h3>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <div class="card">
+                                    <div class="card-body text-center">
+                                        <i class="fas fa-cogs fa-2x text-info mb-2"></i>
+                                        <h5>Metrics</h5>
+                                        <h3 class="text-info" id="available-metrics">16</h3>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>System Status</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="system-status">
+                                            <div class="d-flex justify-content-between">
+                                                <span>API Status:</span>
+                                                <span class="status-success" id="api-status">Healthy</span>
+                                            </div>
+                                            <div class="d-flex justify-content-between">
+                                                <span>Database:</span>
+                                                <span class="status-success" id="db-status">Connected</span>
+                                            </div>
+                                            <div class="d-flex justify-content-between">
+                                                <span>LangSmith:</span>
+                                                <span class="status-success" id="langsmith-status">Connected</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Recent Activity</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="recent-activity">
+                                            <p class="text-muted">No recent activity</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Scenario to Docs Section -->
+                    <div id="scenario-to-docs-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2><i class="fas fa-file-alt me-2"></i>Scenario to Documents</h2>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Generate Documents from Scenario</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="scenario-to-docs-form">
+                                    <div class="mb-3">
+                                        <label for="scenario-prompt" class="form-label">Scenario Prompt</label>
+                                        <textarea class="form-control" id="scenario-prompt" rows="4" 
+                                                  placeholder="Describe the scenario you want to generate documents for..."></textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="output-folder" class="form-label">Output Folder</label>
+                                        <input type="text" class="form-control" id="output-folder" 
+                                               placeholder="./data/generated_docs">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="num-docs" class="form-label">Number of Documents</label>
+                                        <input type="number" class="form-control" id="num-docs" value="5" min="1" max="20">
+                                        <div class="form-text">Each document will be generated from a different persona perspective</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="model-provider" class="form-label">Model Provider</label>
+                                        <select class="form-control" id="model-provider">
+                                            <option value="openai">OpenAI</option>
+                                            <option value="gemini">Google Gemini</option>
+                                            <option value="ollama">Ollama</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="model-name" class="form-label">Model</label>
+                                        <select class="form-control" id="model-name">
+                                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="language" class="form-label">Language</label>
+                                        <input type="text" class="form-control" id="language" value="繁體中文" 
+                                               placeholder="繁體中文">
+                                        <div class="form-text">Language for document generation (e.g., 繁體中文, English, 简体中文)</div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-magic me-2"></i>Generate Documents
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div id="scenario-results" class="mt-4"></div>
+                    </div>
+
+                    <!-- RAG Testset Section -->
+                    <div id="rag-testset-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2><i class="fas fa-search me-2"></i>RAG Testset Generation</h2>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Generate RAG Testset from Folder</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="rag-testset-form">
+                                    <div class="mb-3">
+                                        <label for="rag-folder-path" class="form-label">Documents Folder Path</label>
+                                        <input type="text" class="form-control" id="rag-folder-path" 
+                                               placeholder="./data/documents">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="rag-output-folder" class="form-label">Output Folder Path</label>
+                                        <input type="text" class="form-control" id="rag-output-folder" 
+                                               placeholder="./outputs/rag_testset">
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="rag-model-provider" class="form-label">Model Provider</label>
+                                            <select class="form-select" id="rag-model-provider">
+                                                <option value="openai">OpenAI</option>
+                                                <option value="gemini">Gemini</option>
+                                                <option value="ollama">Ollama</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="rag-model-name" class="form-label">Model</label>
+                                            <select class="form-select" id="rag-model-name">
+                                                <option value="">Loading models...</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="rag-language" class="form-label">Language</label>
+                                            <input type="text" class="form-control" id="rag-language" value="繁體中文" 
+                                                   placeholder="繁體中文">
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="chunk-size" class="form-label">Chunk Size</label>
+                                            <input type="number" class="form-control" id="chunk-size" value="5000" min="100" max="20000">
+                                            <div class="form-text">Size of each text chunk in characters</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="chunk-overlap" class="form-label">Chunk Overlap</label>
+                                            <input type="number" class="form-control" id="chunk-overlap" value="200" min="0" max="1000">
+                                            <div class="form-text">Overlap between consecutive chunks</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="rag-qa-per-chunk" class="form-label">QA Pairs per Chunk</label>
+                                            <input type="number" class="form-control" id="rag-qa-per-chunk" value="3" min="1" max="10">
+                                            <div class="form-text">Number of QA pairs per chunk</div>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-cogs me-2"></i>Generate RAG Testset
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div id="rag-results" class="mt-4"></div>
+                    </div>
+
+                    <!-- Agent Testset Section -->
+                    <div id="agent-testset-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2><i class="fas fa-robot me-2"></i>Agent Testset Generation</h2>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Generate Agent Testset with Excel Output</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="agent-testset-form">
+                                    <div class="mb-3">
+                                        <label for="agent-documents-folder" class="form-label">Documents Folder Path</label>
+                                        <input type="text" class="form-control" id="agent-documents-folder" 
+                                               placeholder="./data/documents">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="agent-output-folder" class="form-label">Output Folder Path</label>
+                                        <input type="text" class="form-control" id="agent-output-folder" 
+                                               placeholder="./outputs/agent_testset">
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="agent-model-provider" class="form-label">Model Provider</label>
+                                            <select class="form-select" id="agent-model-provider">
+                                                <option value="openai">OpenAI</option>
+                                                <option value="gemini">Gemini</option>
+                                                <option value="ollama">Ollama</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="agent-model-name" class="form-label">Model</label>
+                                            <select class="form-select" id="agent-model-name">
+                                                <option value="">Loading models...</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="agent-language" class="form-label">Language</label>
+                                            <input type="text" class="form-control" id="agent-language" value="繁體中文" 
+                                                   placeholder="繁體中文">
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="agent-chunk-size" class="form-label">Chunk Size</label>
+                                            <input type="number" class="form-control" id="agent-chunk-size" value="5000" min="100" max="20000">
+                                            <div class="form-text">Size of each text chunk in characters</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="agent-chunk-overlap" class="form-label">Chunk Overlap</label>
+                                            <input type="number" class="form-control" id="agent-chunk-overlap" value="200" min="0" max="1000">
+                                            <div class="form-text">Overlap between consecutive chunks</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="agent-tasks-per-chunk" class="form-label">Tasks per Chunk</label>
+                                            <input type="number" class="form-control" id="agent-tasks-per-chunk" value="3" min="1" max="10">
+                                            <div class="form-text">Number of task-oriented conversations per chunk</div>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-file-excel me-2"></i>Generate Agent Testset
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div id="agent-results" class="mt-4"></div>
+                    </div>
+
+                    <!-- Evaluation Section -->
+                    <div id="evaluation-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2><i class="fas fa-chart-line me-2"></i>Evaluation</h2>
+                        </div>
+
+                        <!-- RAG Evaluation -->
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-question-circle me-2"></i>RAG System Evaluation</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="rag-evaluation-form">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label for="rag-testset-path" class="form-label">RAG Testset Excel File</label>
+                                                <input type="text" class="form-control" id="rag-testset-path" 
+                                                       placeholder="./outputs/rag_testset.xlsx">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="rag-api-url" class="form-label">External LLM API URL</label>
+                                                <input type="text" class="form-control" id="rag-api-url" 
+                                                       placeholder="http://36.231.184.28:3001/api/v1/workspace/my-workspace/chat">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="rag-api-headers" class="form-label">API Headers (JSON)</label>
+                                                <textarea class="form-control" id="rag-api-headers" rows="3" 
+                                                          placeholder='{"Authorization": "Bearer 69GJRE6-1JT4ZTD-HC0VT40-A29C9VB"}'></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label for="rag-judge-model-type" class="form-label">Judge Model Type</label>
+                                                <select class="form-select" id="rag-judge-model-type">
+                                                    <option value="openai">OpenAI</option>
+                                                    <option value="gemini">Gemini</option>
+                                                    <option value="ollama">Ollama</option>
+                                                    <option value="huggingface">Hugging Face</option>
+                                                </select>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="rag-judge-model" class="form-label">Judge Model</label>
+                                                <select class="form-select" id="rag-judge-model">
+                                                    <option value="">Loading models...</option>
+                                                </select>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="rag-output-path" class="form-label">Output Path</label>
+                                                <input type="text" class="form-control" id="rag-output-path" 
+                                                       placeholder="./outputs/rag_evaluation_results.xlsx">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Selected Metrics</label>
+                                        <div class="row" id="rag-metrics-container">
+                                            <!-- Metrics will be loaded dynamically -->
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-play me-2"></i>Start RAG Evaluation
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Agent Evaluation -->
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-robot me-2"></i>Agent System Evaluation</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="agent-evaluation-form">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label for="agent-testset-path" class="form-label">Agent Testset Excel File</label>
+                                                <input type="text" class="form-control" id="agent-testset-path" 
+                                                       placeholder="./outputs/agent_testset.xlsx">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="agent-api-url" class="form-label">External LLM API URL</label>
+                                                <input type="text" class="form-control" id="agent-api-url" 
+                                                       placeholder="http://localhost:8000/conversations">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="agent-api-headers" class="form-label">API Headers (JSON)</label>
+                                                <textarea class="form-control" id="agent-api-headers" rows="3" 
+                                                          placeholder='{"Content-Type": "application/json"}'></textarea>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="agent-max-turns" class="form-label">Max Conversation Turns</label>
+                                                <input type="number" class="form-control" id="agent-max-turns" value="30" min="1" max="100">
+                                                <div class="form-text">Maximum number of conversation turns per task</div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label for="agent-judge-model-type" class="form-label">Judge Model Type</label>
+                                                <select class="form-select" id="agent-judge-model-type">
+                                                    <option value="openai">OpenAI</option>
+                                                    <option value="gemini">Gemini</option>
+                                                    <option value="ollama">Ollama</option>
+                                                    <option value="huggingface">Hugging Face</option>
+                                                </select>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="agent-judge-model" class="form-label">Judge Model</label>
+                                                <select class="form-select" id="agent-judge-model">
+                                                    <option value="">Loading models...</option>
+                                                </select>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="agent-output-path" class="form-label">Output Path</label>
+                                                <input type="text" class="form-control" id="agent-output-path" 
+                                                       placeholder="./outputs/agent_evaluation_results.xlsx">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Selected Metrics</label>
+                                        <div class="row" id="agent-metrics-container">
+                                            <!-- Metrics will be loaded dynamically -->
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-play me-2"></i>Start Agent Evaluation
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- API Connection Test -->
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="fas fa-plug me-2"></i>API Connection Test</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="api-test-form">
+                                    <div class="row">
+                                        <div class="col-md-8">
+                                            <div class="mb-3">
+                                                <label for="test-api-url" class="form-label">API URL</label>
+                                                <input type="text" class="form-control" id="test-api-url" 
+                                                       placeholder="http://36.231.184.28:3001/api/v1/workspace/my-workspace/chat">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="mb-3">
+                                                <label for="test-api-headers" class="form-label">Headers (JSON)</label>
+                                                <textarea class="form-control" id="test-api-headers" rows="3" 
+                                                          placeholder='{"Authorization": "Bearer token"}'></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-secondary">
+                                        <i class="fas fa-wifi me-2"></i>Test Connection
+                                    </button>
+                                </form>
+                                <div id="api-test-results" class="mt-3"></div>
+                            </div>
+                        </div>
+
+                        <div id="evaluation-results" class="mt-4"></div>
+                    </div>
+
+                    <!-- Results Section -->
+                    <div id="results-section" class="content-section" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h2><i class="fas fa-clipboard-list me-2"></i>Results</h2>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Evaluation Results</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="results-list">
+                                    <p class="text-muted">No results available</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="static/app.js"></script>
+</body>
+</html>
+

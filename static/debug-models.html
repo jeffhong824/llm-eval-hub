@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Models</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .debug-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Model Debug Page</h1>
+    
+    <div class="debug-section">
+        <h2>Raw API Response</h2>
+        <pre id="raw-response">Loading...</pre>
+    </div>
+    
+    <div class="debug-section">
+        <h2>Summary Data</h2>
+        <pre id="summary-data">Loading...</pre>
+    </div>
+    
+    <div class="debug-section">
+        <h2>Model Selection Test</h2>
+        <label for="provider-select">Provider:</label>
+        <select id="provider-select">
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Gemini</option>
+            <option value="ollama">Ollama</option>
+        </select>
+        
+        <label for="model-select">Model:</label>
+        <select id="model-select">
+            <option value="">Loading...</option>
+        </select>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:8000';
+        
+        async function loadModels() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/v1/testset/models/available`);
+                const data = await response.json();
+                
+                // Show raw response
+                document.getElementById('raw-response').textContent = JSON.stringify(data, null, 2);
+                
+                // Show summary data
+                document.getElementById('summary-data').textContent = JSON.stringify(data.summary, null, 2);
+                
+                // Test model selection logic
+                const providerSelect = document.getElementById('provider-select');
+                const modelSelect = document.getElementById('model-select');
+                
+                // Clear existing options
+                modelSelect.innerHTML = '';
+                
+                // Add models for each provider
+                Object.entries(data.summary).forEach(([provider, models]) => {
+                    console.log(`Provider: ${provider}, Models:`, models);
+                    if (models && models.length > 0) {
+                        models.forEach(model => {
+                            const option = document.createElement('option');
+                            option.value = model;
+                            option.textContent = `${provider.toUpperCase()}: ${model}`;
+                            option.dataset.provider = provider;
+                            modelSelect.appendChild(option);
+                            console.log(`Added option: ${provider} - ${model}`);
+                        });
+                    }
+                });
+                
+                // Update provider selection handler
+                providerSelect.addEventListener('change', function() {
+                    const selectedProvider = this.value;
+                    const options = modelSelect.querySelectorAll('option');
+                    let hasAvailableModels = false;
+                    let firstAvailableModel = null;
+                    
+                    console.log(`Selected provider: ${selectedProvider}`);
+                    
+                    options.forEach(option => {
+                        if (option.dataset.provider === selectedProvider) {
+                            option.style.display = 'block';
+                            console.log(`Showing option: ${option.value}`);
+                            if (!hasAvailableModels) {
+                                firstAvailableModel = option.value;
+                                hasAvailableModels = true;
+                            }
+                        } else {
+                            option.style.display = 'none';
+                        }
+                    });
+                    
+                    console.log(`Has available models: ${hasAvailableModels}, First model: ${firstAvailableModel}`);
+                    
+                    // Set the first available model as selected
+                    if (hasAvailableModels && firstAvailableModel) {
+                        modelSelect.value = firstAvailableModel;
+                        console.log(`Set model to: ${firstAvailableModel}`);
+                    } else {
+                        modelSelect.value = '';
+                        console.log('No models available, clearing selection');
+                    }
+                });
+                
+                // Set initial selection
+                providerSelect.dispatchEvent(new Event('change'));
+                
+            } catch (error) {
+                console.error('Error loading models:', error);
+                document.getElementById('raw-response').textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Load models when page loads
+        loadModels();
+    </script>
+</body>
+</html>
+
+

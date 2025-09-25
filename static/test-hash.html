@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hash Test - LLM Evaluation Hub</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-link { display: block; padding: 10px; margin: 5px; background: #f0f0f0; cursor: pointer; text-decoration: none; color: black; }
+        .test-link:hover { background: #e0e0e0; }
+        .test-result { margin: 20px 0; padding: 15px; background: #f8f9fa; border-left: 4px solid #007bff; }
+        .status { font-weight: bold; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Hash Navigation Test</h1>
+    
+    <div class="test-result">
+        <h3>測試結果</h3>
+        <div id="test-results">正在初始化...</div>
+    </div>
+    
+    <h3>測試鏈接</h3>
+    <a class="test-link" href="http://localhost:8000/#scenario-to-docs">測試 Scenario to Docs</a>
+    <a class="test-link" href="http://localhost:8000/#rag-testset">測試 RAG Testset</a>
+    <a class="test-link" href="http://localhost:8000/#agent-testset">測試 Agent Testset</a>
+    <a class="test-link" href="http://localhost:8000/#evaluation">測試 Evaluation</a>
+    <a class="test-link" href="http://localhost:8000/#results">測試 Results</a>
+    
+    <h3>手動測試</h3>
+    <p>在瀏覽器地址欄中輸入以下 URL 來測試：</p>
+    <ul>
+        <li><code>http://localhost:8000/#scenario-to-docs</code></li>
+        <li><code>http://localhost:8000/#rag-testset</code></li>
+        <li><code>http://localhost:8000/#agent-testset</code></li>
+        <li><code>http://localhost:8000/#evaluation</code></li>
+        <li><code>http://localhost:8000/#results</code></li>
+    </ul>
+    
+    <h3>預期行為</h3>
+    <ul>
+        <li>頁面應該自動切換到對應的 section</li>
+        <li>左側導航應該高亮對應的按鈕</li>
+        <li>URL 應該保持 hash 片段</li>
+        <li>控制台應該顯示導航日誌</li>
+    </ul>
+
+    <script>
+        function log(message, type = 'info') {
+            console.log(message);
+            const resultsDiv = document.getElementById('test-results');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : '';
+            resultsDiv.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+        }
+        
+        // 測試當前 hash
+        function testCurrentHash() {
+            const hash = window.location.hash;
+            if (hash) {
+                log(`當前 hash: ${hash}`, 'success');
+                log(`應該切換到 section: ${hash.substring(1)}`, 'info');
+            } else {
+                log('沒有 hash 片段', 'info');
+            }
+        }
+        
+        // 監聽 hash 變化
+        window.addEventListener('hashchange', function() {
+            log(`Hash 變化: ${window.location.hash}`, 'success');
+        });
+        
+        // 頁面載入時測試
+        window.addEventListener('load', function() {
+            log('頁面載入完成', 'success');
+            testCurrentHash();
+            
+            // 測試 API 連接
+            fetch('http://localhost:8000/health')
+                .then(response => response.json())
+                .then(data => {
+                    log(`API 連接成功: ${data.status}`, 'success');
+                })
+                .catch(error => {
+                    log(`API 連接失敗: ${error.message}`, 'error');
+                });
+        });
+    </script>
+</body>
+</html>
+
+
+

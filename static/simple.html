@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .nav-link { display: block; padding: 10px; margin: 5px; background: #f0f0f0; cursor: pointer; text-decoration: none; color: black; }
+        .nav-link:hover { background: #e0e0e0; }
+        .nav-link.active { background: #007bff; color: white; }
+        .content-section { margin: 20px 0; padding: 20px; border: 1px solid #ccc; }
+        .test-result { margin: 10px 0; padding: 10px; background: #f8f9fa; border-left: 4px solid #007bff; }
+    </style>
+</head>
+<body>
+    <h1>LLM Evaluation Hub - Simple Test</h1>
+    
+    <div class="test-result">
+        <strong>測試結果：</strong>
+        <div id="test-results">正在初始化...</div>
+    </div>
+    
+    <div style="display: flex; gap: 20px;">
+        <div style="width: 200px;">
+            <h3>導航測試</h3>
+            <a class="nav-link active" href="#" onclick="showSection('dashboard'); return false;">Dashboard</a>
+            <a class="nav-link" href="#" onclick="showSection('scenario'); return false;">Scenario to Docs</a>
+            <a class="nav-link" href="#" onclick="showSection('rag'); return false;">RAG Testset</a>
+            <a class="nav-link" href="#" onclick="showSection('agent'); return false;">Agent Testset</a>
+            <a class="nav-link" href="#" onclick="showSection('evaluation'); return false;">Evaluation</a>
+            <a class="nav-link" href="#" onclick="showSection('results'); return false;">Results</a>
+        </div>
+        
+        <div style="flex: 1;">
+            <div id="dashboard" class="content-section">
+                <h2>Dashboard</h2>
+                <p>這是儀表板頁面。</p>
+                <button onclick="testAPI()">測試 API 連接</button>
+                <div id="api-result"></div>
+            </div>
+            
+            <div id="scenario" class="content-section" style="display: none;">
+                <h2>Scenario to Documents</h2>
+                <p>這是情境轉文檔頁面。</p>
+                <form onsubmit="testForm('scenario'); return false;">
+                    <input type="text" placeholder="輸入情境描述" style="width: 100%; padding: 8px; margin: 5px 0;">
+                    <br>
+                    <button type="submit">生成文檔</button>
+                </form>
+                <div id="scenario-result"></div>
+            </div>
+            
+            <div id="rag" class="content-section" style="display: none;">
+                <h2>RAG Testset</h2>
+                <p>這是 RAG 測試集頁面。</p>
+                <form onsubmit="testForm('rag'); return false;">
+                    <input type="text" placeholder="輸入資料夾路徑" style="width: 100%; padding: 8px; margin: 5px 0;">
+                    <br>
+                    <button type="submit">生成測試集</button>
+                </form>
+                <div id="rag-result"></div>
+            </div>
+            
+            <div id="agent" class="content-section" style="display: none;">
+                <h2>Agent Testset</h2>
+                <p>這是 Agent 測試集頁面。</p>
+                <form onsubmit="testForm('agent'); return false;">
+                    <textarea placeholder="輸入 Agent 情境 JSON" style="width: 100%; height: 100px; padding: 8px; margin: 5px 0;"></textarea>
+                    <br>
+                    <button type="submit">生成測試集</button>
+                </form>
+                <div id="agent-result"></div>
+            </div>
+            
+            <div id="evaluation" class="content-section" style="display: none;">
+                <h2>Evaluation</h2>
+                <p>這是評估頁面。</p>
+                <form onsubmit="testForm('evaluation'); return false;">
+                    <input type="text" placeholder="輸入測試集 ID" style="width: 100%; padding: 8px; margin: 5px 0;">
+                    <br>
+                    <button type="submit">開始評估</button>
+                </form>
+                <div id="evaluation-result"></div>
+            </div>
+            
+            <div id="results" class="content-section" style="display: none;">
+                <h2>Results</h2>
+                <p>這是結果頁面。</p>
+                <button onclick="loadResults()">載入結果</button>
+                <div id="results-list">暫無結果</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function log(message) {
+            console.log(message);
+            const resultsDiv = document.getElementById('test-results');
+            resultsDiv.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + message + '</div>';
+        }
+        
+        function showSection(sectionName) {
+            log('切換到頁面: ' + sectionName);
+            
+            // 隱藏所有頁面
+            const sections = ['dashboard', 'scenario', 'rag', 'agent', 'evaluation', 'results'];
+            sections.forEach(section => {
+                const element = document.getElementById(section);
+                if (element) {
+                    element.style.display = 'none';
+                }
+            });
+            
+            // 顯示選中的頁面
+            const targetSection = document.getElementById(sectionName);
+            if (targetSection) {
+                targetSection.style.display = 'block';
+                log('✓ 成功顯示頁面: ' + sectionName);
+            } else {
+                log('✗ 找不到頁面: ' + sectionName);
+            }
+            
+            // 更新導航狀態
+            const navLinks = document.querySelectorAll('.nav-link');
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.textContent.toLowerCase().includes(sectionName)) {
+                    link.classList.add('active');
+                }
+            });
+        }
+        
+        async function testAPI() {
+            log('測試 API 連接...');
+            try {
+                const response = await fetch('http://localhost:8000/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✓ API 連接成功');
+                    document.getElementById('api-result').innerHTML = 
+                        '<div style="color: green;">✓ API 連接成功<br>狀態: ' + data.status + '</div>';
+                } else {
+                    log('✗ API 連接失敗: ' + response.status);
+                    document.getElementById('api-result').innerHTML = 
+                        '<div style="color: red;">✗ API 連接失敗: ' + response.status + '</div>';
+                }
+            } catch (error) {
+                log('✗ API 連接錯誤: ' + error.message);
+                document.getElementById('api-result').innerHTML = 
+                    '<div style="color: red;">✗ API 連接錯誤: ' + error.message + '</div>';
+            }
+        }
+        
+        function testForm(formType) {
+            log('測試表單提交: ' + formType);
+            const resultDiv = document.getElementById(formType + '-result');
+            resultDiv.innerHTML = '<div style="color: green;">✓ ' + formType + ' 表單提交成功！</div>';
+            log('✓ ' + formType + ' 表單提交成功');
+        }
+        
+        function loadResults() {
+            log('載入結果...');
+            document.getElementById('results-list').innerHTML = 
+                '<div style="color: green;">✓ 結果載入成功！<br>這裡會顯示評估結果。</div>';
+            log('✓ 結果載入成功');
+        }
+        
+        // 頁面載入時初始化
+        window.addEventListener('load', function() {
+            log('頁面載入完成，開始測試...');
+            setTimeout(() => {
+                log('✓ 所有功能已準備就緒');
+                testAPI();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
+
+
+
