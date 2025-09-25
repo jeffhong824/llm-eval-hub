@@ -272,40 +272,40 @@ class DocumentProcessor:
         Returns:
             Dictionary with save results
         """
-        # Handle both absolute and relative paths
-        # Check for Windows absolute paths first (even if os.path.isabs returns False in container)
+        # Always generate files in /app/data first, then move to target location
+        # This ensures file generation stability and proper cleanup
+        temp_output_path = Path('/app/data/temp_generated')
+        temp_output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Determine final target path for later move operation
         if output_folder.startswith('D:\\'):
             # Windows absolute path - map to Docker volume mount
-            # Convert Windows path to container path
             if output_folder.startswith('D:\\workplace\\project_management\\my_github'):
-                # Map to host_github volume mount
                 relative_path = output_folder.replace('D:\\workplace\\project_management\\my_github', '').replace('\\', '/')
-                output_path = Path('/app/host_github') / relative_path.lstrip('/')
-                logger.info(f"Windows path mapped: {output_folder} -> {output_path}")
+                final_target_path = Path('/app/host_github') / relative_path.lstrip('/')
+                logger.info(f"Windows path mapped: {output_folder} -> {final_target_path}")
             else:
-                # For other Windows paths, try to use as is
-                output_path = Path(output_folder)
-                logger.info(f"Windows path used as is: {output_path}")
+                final_target_path = Path(output_folder)
+                logger.info(f"Windows path used as is: {final_target_path}")
         elif os.path.isabs(output_folder):
             # Unix absolute path - use as is
-            output_path = Path(output_folder)
-            logger.info(f"Unix path used as is: {output_path}")
+            final_target_path = Path(output_folder)
+            logger.info(f"Unix absolute path used as is: {final_target_path}")
         else:
             # Relative path - map to host_github volume mount for Docker compatibility
-            # This ensures relative paths are accessible from the host machine
-            # Handle both ./ and ../ relative paths
             if output_folder.startswith('./'):
-                # Remove ./ prefix
                 relative_path = output_folder[2:]
             elif output_folder.startswith('../'):
-                # Keep ../ as is for parent directory access
                 relative_path = output_folder
             else:
-                # No prefix, use as is
                 relative_path = output_folder
             
-            output_path = Path('/app/host_github') / relative_path
-            logger.info(f"Relative path mapped to host_github: {output_folder} -> {output_path}")
+            final_target_path = Path('/app/host_github') / relative_path
+            logger.info(f"Relative path mapped to host_github: {output_folder} -> {final_target_path}")
+        
+        # Use temp path for initial generation
+        output_path = temp_output_path
+        logger.info(f"Files will be generated in temp location: {output_path}")
         
         # Create output directory
         output_path.mkdir(parents=True, exist_ok=True)
@@ -356,6 +356,41 @@ class DocumentProcessor:
                 logger.error(f"Error saving document {i}: {str(e)}")
                 continue
         
+        # Move files from temp location to final target location
+        moved_files = []
+        try:
+            import shutil
+            
+            # Create final target directory
+            final_target_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created final target directory: {final_target_path}")
+            
+            # Move each generated file to target location
+            for file_path in saved_files:
+                source_path = Path(file_path)
+                target_file_path = final_target_path / source_path.name
+                
+                # Move file
+                shutil.move(str(source_path), str(target_file_path))
+                moved_files.append(str(target_file_path))
+                logger.info(f"Moved file: {source_path} -> {target_file_path}")
+            
+            # Verify all files were moved successfully
+            if len(moved_files) == len(saved_files):
+                logger.info(f"Successfully moved {len(moved_files)} files to {final_target_path}")
+                
+                # Clean up temp directory
+                if temp_output_path.exists():
+                    shutil.rmtree(temp_output_path)
+                    logger.info(f"Cleaned up temp directory: {temp_output_path}")
+            else:
+                logger.error(f"File move verification failed: {len(moved_files)}/{len(saved_files)} files moved")
+                
+        except Exception as e:
+            logger.error(f"Error moving files to target location: {str(e)}")
+            # If move fails, keep files in temp location
+            moved_files = saved_files
+        
         # Cleanup temporary files if requested
         if cleanup_temp:
             try:
@@ -374,9 +409,10 @@ class DocumentProcessor:
         return {
             'total_documents': len(documents),
             'saved_files': len(saved_files),
-            'output_folder': str(output_path),
+            'moved_files': len(moved_files),
+            'output_folder': str(final_target_path),
             'format': format,
-            'files': saved_files,
+            'files': moved_files,
             'cleaned_up_temp_files': temp_files
         }
     

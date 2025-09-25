@@ -322,10 +322,10 @@ Return only the JSON array.
             
             logger.info(f"RAG testset saved to temp location: {temp_excel_path}")
             
-            # Copy to user-specified output folder
+            # Move file from temp location to user-specified output folder
             import shutil
             
-            # Handle Windows absolute paths in Docker for output folder
+            # Determine final target path
             if output_folder.startswith('D:\\'):
                 # D:\workplace\project_management\my_github\ -> /app/host_github/
                 final_output_path = Path(output_folder.replace('D:\\workplace\\project_management\\my_github', '/app/host_github'))
@@ -356,22 +356,24 @@ Return only the JSON array.
                 final_output_path = Path('/app/host_github') / relative_path
                 logger.info(f"Relative path mapped to host_github: {output_folder} -> {final_output_path}")
             
+            # Create final target directory
             final_output_path.mkdir(parents=True, exist_ok=True)
             
+            # Move file from temp to final location
             final_excel_path = final_output_path / "rag_testset.xlsx"
-            shutil.copy2(temp_excel_path, final_excel_path)
+            shutil.move(str(temp_excel_path), str(final_excel_path))
             
-            logger.info(f"RAG testset copied to final location: {final_excel_path}")
+            logger.info(f"RAG testset moved to final location: {final_excel_path}")
             
-            # Verify file was copied successfully before cleanup
+            # Verify file was moved successfully before cleanup
             if final_excel_path.exists():
-                logger.info(f"File copy verified: {final_excel_path}")
+                logger.info(f"File move verified: {final_excel_path}")
                 # Clean up temp files
                 shutil.rmtree(temp_output_path)
                 logger.info(f"Cleaned up temp directory: {temp_output_path}")
             else:
-                logger.error(f"File copy failed: {final_excel_path}")
-                raise FileNotFoundError(f"Failed to copy file to {final_excel_path}")
+                logger.error(f"File move failed: {final_excel_path}")
+                raise FileNotFoundError(f"Failed to move file to {final_excel_path}")
             
             logger.info(f"Generated {len(all_qa_pairs)} QA pairs from {len(chunks)} chunks")
             
