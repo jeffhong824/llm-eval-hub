@@ -57,10 +57,21 @@ class Settings(BaseSettings):
     max_concurrent_evaluations: int = Field(default=10, env="MAX_CONCURRENT_EVALUATIONS")
     cache_evaluation_results: bool = Field(default=True, env="CACHE_EVALUATION_RESULTS")
     
+    # Test Set Generation Configuration
+    default_num_personas: int = Field(default=5, env="DEFAULT_NUM_PERSONAS")
+    default_num_documents: int = Field(default=5, env="DEFAULT_NUM_DOCUMENTS")
+    default_chunk_size: int = Field(default=5000, env="DEFAULT_CHUNK_SIZE")
+    default_chunk_overlap: int = Field(default=200, env="DEFAULT_CHUNK_OVERLAP")
+    default_qa_per_chunk: int = Field(default=3, env="DEFAULT_QA_PER_CHUNK")
+    default_tasks_per_chunk: int = Field(default=3, env="DEFAULT_TASKS_PER_CHUNK")
+    default_max_turns: int = Field(default=30, env="DEFAULT_MAX_TURNS")
+    default_language: str = Field(default="繁體中文", env="DEFAULT_LANGUAGE")
+    
     # File Storage
     upload_dir: str = Field(default="./data/uploads", env="UPLOAD_DIR")
     results_dir: str = Field(default="./results", env="RESULTS_DIR")
     artifacts_dir: str = Field(default="./artifacts", env="ARTIFACTS_DIR")
+    outputs_dir: str = Field(default="./outputs", env="OUTPUTS_DIR")
     
     # Monitoring
     enable_metrics: bool = Field(default=True, env="ENABLE_METRICS")

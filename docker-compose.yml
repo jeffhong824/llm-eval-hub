@@ -21,6 +21,13 @@ services:
       - ./artifacts:/app/artifacts
       - ./outputs:/app/outputs
       - .:/app/host_github
+      # Mount user's home directory for flexible file access
+      # Mac/Linux users: Uncomment the appropriate line below
+      # - $HOME:/app/host_files
+      # Windows users: Uncomment and customize the line below
+      # - D:/:/app/host_d_drive
+      # Additional custom mount (configure as needed)
+      # - /path/to/custom/folder:/app/custom_data
     depends_on:
       - db
       - redis

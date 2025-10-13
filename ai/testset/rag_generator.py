@@ -6,7 +6,7 @@ Generates RAG test sets from documents by chunking them and creating QA pairs.
 
 import os
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 import pandas as pd
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -113,12 +113,66 @@ class RAGTestsetGenerator:
             logger.error(f"Error chunking documents: {e}")
             raise
     
-    def generate_qa_pairs_for_chunk(self, chunk: str, num_pairs: int = 3, language: str = "繁體中文") -> List[Dict[str, str]]:
-        """Generate QA pairs for a single chunk."""
+    def generate_qa_pairs_for_chunk(
+        self, 
+        chunk: str, 
+        num_pairs: int = 3, 
+        language: str = "繁體中文",
+        personas: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, str]]:
+        """Generate QA pairs for a single chunk, optionally using specific personas."""
         try:
             # Load system prompt
             from ai.resources.prompt_manager import prompt_manager
             system_prompt = prompt_manager.get_qa_generation_prompt()
+            
+            # Build persona context if provided
+            persona_context = ""
+            if personas and len(personas) > 0:
+                persona_context = "\n## 用戶角色參考\n\n請根據以下用戶角色來生成問題，確保問題能夠反映這些真實用戶的需求、背景和問問題的方式：\n\n"
+                for i, persona in enumerate(personas[:num_pairs], 1):
+                    persona_context += f"""
+### 角色 {i}: {persona.get('persona_name', 'Unknown')}
+- **職業背景**: {persona.get('basic_info', {}).get('occupation', 'N/A')}
+- **年齡**: {persona.get('basic_info', {}).get('age', 'N/A')}
+- **核心需求**: {', '.join(persona.get('needs_and_goals', {}).get('core_needs', [])[:2])}
+- **痛點**: {', '.join(persona.get('needs_and_goals', {}).get('pain_points', [])[:2])}
+- **決策風格**: {persona.get('behavior_patterns', {}).get('decision_style', 'N/A')}
+- **溝通方式**: {persona.get('communication_style', {}).get('questioning_approach', 'N/A')}
+- **問問題特色**: {persona.get('communication_style', {}).get('language_characteristics', 'N/A')}
+
+"""
+                persona_context += "\n**重要**: 每個問題都應該明確對應一個角色，並體現該角色的特徵、需求和提問方式。\n"
+            
+            # Prepare requirement 2
+            requirement_2 = 'Each question MUST correspond to one of the personas listed above, reflecting their background, needs, pain points, and communication style' if personas else 'Each question should represent a different user persona/role'
+            
+            # Prepare requirement 9
+            requirement_9 = '9. Include the persona name in the output to show which persona is asking' if personas else ''
+            
+            # Prepare diversity guidelines
+            if personas:
+                diversity_section = 'Use the personas provided above as the basis for generating questions. Each question should naturally emerge from a specific personas needs, pain points, and communication style.'
+            else:
+                diversity_section = '''Diversity Guidelines:
+- Beginner: "I'm new to this, can you explain...?"
+- Expert: "What are the advanced techniques for...?"
+- Problem-solver: "I'm having trouble with..."
+- Decision-maker: "Should I choose... or...?"
+- Learner: "I want to understand..."
+- Practical user: "How do I actually do...?"
+- Researcher: "What are the latest trends in...?"
+- Concerned user: "Is... safe?"'''
+            
+            # Prepare output format fields
+            if personas:
+                trailing_comma = ","
+                persona_name_field = '"persona_name": "Name of the persona asking this question",'
+                persona_id_field = '"persona_id": "persona_xxx"'
+            else:
+                trailing_comma = ""
+                persona_name_field = ""
+                persona_id_field = ""
             
             prompt = f"""{system_prompt}
 
@@ -129,26 +183,20 @@ Text Content:
 {chunk}
 
 Language: {language}
+{persona_context}
 
 Requirements:
 1. Generate exactly {num_pairs} unique questions
-2. Each question should represent a different user persona/role
+2. {requirement_2}
 3. Vary the expertise level (beginner to expert)
 4. Mix different question types and intents
-5. Use diverse language patterns and expressions
-6. Include personal context and real-world scenarios
+5. Use diverse language patterns and expressions that match the persona's communication style
+6. Include personal context and real-world scenarios from the persona's life
 7. Avoid repetitive or generic questions
 8. Make each question sound like a different person asking
+{requirement_9}
 
-Diversity Guidelines:
-- Beginner: "I'm new to this, can you explain...?"
-- Expert: "What are the advanced techniques for...?"
-- Problem-solver: "I'm having trouble with..."
-- Decision-maker: "Should I choose... or...?"
-- Learner: "I want to understand..."
-- Practical user: "How do I actually do...?"
-- Researcher: "What are the latest trends in...?"
-- Concerned user: "Is... safe?"
+{diversity_section}
 
 Output Format:
 ```json
@@ -158,7 +206,9 @@ Output Format:
     "answer": "Accurate answer based on the text",
     "context": "Relevant text fragment",
     "difficulty": "easy|medium|hard",
-    "question_type": "practical|problem_solving|decision_making|learning|use_case"
+    "question_type": "practical|problem_solving|decision_making|learning|use_case"{trailing_comma}
+    {persona_name_field}
+    {persona_id_field}
   }}
 ]
 ```
@@ -280,9 +330,16 @@ Return only the JSON array.
             logger.warning(f"Using fallback QA pairs due to error: {len(fallback_pairs)} pairs")
             return fallback_pairs
     
-    def generate_testset(self, documents_folder: str, output_folder: str, 
-                        chunk_size: int = 5000, chunk_overlap: int = 200, 
-                        qa_per_chunk: int = 3, language: str = "繁體中文") -> Dict[str, Any]:
+    def generate_testset(
+        self, 
+        documents_folder: str, 
+        output_folder: str, 
+        chunk_size: int = 5000, 
+        chunk_overlap: int = 200, 
+        qa_per_chunk: int = 3, 
+        language: str = "繁體中文",
+        personas: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
         """Generate complete RAG testset."""
         try:
             logger.info(f"Starting RAG testset generation from {documents_folder}")
@@ -301,7 +358,17 @@ Return only the JSON array.
             all_qa_pairs = []
             for i, chunk in enumerate(chunks):
                 logger.info(f"Processing chunk {i+1}/{len(chunks)}")
-                qa_pairs = self.generate_qa_pairs_for_chunk(chunk, qa_per_chunk, language)
+                # Select different personas for each chunk if available
+                chunk_personas = None
+                if personas and len(personas) > 0:
+                    # Rotate through personas for variety
+                    start_idx = (i * qa_per_chunk) % len(personas)
+                    chunk_personas = []
+                    for j in range(qa_per_chunk):
+                        persona_idx = (start_idx + j) % len(personas)
+                        chunk_personas.append(personas[persona_idx])
+                
+                qa_pairs = self.generate_qa_pairs_for_chunk(chunk, qa_per_chunk, language, chunk_personas)
                 
                 # Add chunk metadata
                 for pair in qa_pairs:

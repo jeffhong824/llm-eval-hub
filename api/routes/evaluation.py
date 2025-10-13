@@ -46,6 +46,13 @@ class AgentEvaluationRequest(BaseModel):
     selected_metrics: List[str] = Field(default_factory=list, description="Selected metrics to evaluate")
 
 
+class CheckModelsRequest(BaseModel):
+    """Request model for checking available models with custom API keys."""
+    openai_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    ollama_base_url: Optional[str] = None
+
+
 class EvaluationResponse(BaseModel):
     """Response model for evaluation results."""
     success: bool
@@ -190,11 +197,11 @@ async def get_available_metrics():
 
 @router.get("/judge-models/available")
 async def get_available_judge_models():
-    """Get list of available judge models."""
+    """Get list of available judge models using .env API keys."""
     from ai.core.model_checker import ModelChecker
     
     model_checker = ModelChecker()
-    available_models = model_checker.check_all_models()
+    available_models = await model_checker.check_all_models()
     
     return {
         "openai": available_models.get("openai", []),
@@ -202,6 +209,82 @@ async def get_available_judge_models():
         "ollama": available_models.get("ollama", []),
         "huggingface": available_models.get("huggingface", [])
     }
+
+
+@router.post("/judge-models/check-custom")
+async def check_custom_judge_models(request: CheckModelsRequest):
+    """Check available models with custom API keys."""
+    import httpx
+    from configs.settings import settings
+    
+    result = {
+        "openai": [],
+        "gemini": [],
+        "ollama": []
+    }
+    
+    # Check OpenAI models
+    if request.openai_api_key:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {request.openai_api_key}"},
+                    timeout=10.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    # Filter for GPT models suitable for evaluation
+                    gpt_models = [
+                        model["id"] for model in data.get("data", [])
+                        if "gpt" in model["id"].lower() and 
+                        any(x in model["id"] for x in ["gpt-4", "gpt-3.5"])
+                    ]
+                    result["openai"] = sorted(gpt_models, reverse=True)[:10]  # Top 10
+                else:
+                    result["openai"] = [f"Error: {response.status_code}"]
+        except Exception as e:
+            result["openai"] = [f"Error: {str(e)}"]
+    
+    # Check Gemini models
+    if request.gemini_api_key:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={request.gemini_api_key}",
+                    timeout=10.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    gemini_models = [
+                        model["name"].replace("models/", "") 
+                        for model in data.get("models", [])
+                        if "gemini" in model["name"].lower()
+                    ]
+                    result["gemini"] = gemini_models
+                else:
+                    result["gemini"] = [f"Error: {response.status_code}"]
+        except Exception as e:
+            result["gemini"] = [f"Error: {str(e)}"]
+    
+    # Check Ollama models
+    if request.ollama_base_url:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{request.ollama_base_url}/api/tags",
+                    timeout=10.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    ollama_models = [model["name"] for model in data.get("models", [])]
+                    result["ollama"] = ollama_models
+                else:
+                    result["ollama"] = [f"Error: {response.status_code}"]
+        except Exception as e:
+            result["ollama"] = [f"Error: {str(e)}"]
+    
+    return result
 
 
 @router.post("/test-api-connection")
@@ -256,3 +339,332 @@ async def get_evaluation_status():
         "max_concurrent_evaluations": 5,
         "default_max_turns": 30
     }
+
+
+class WorkflowEvaluationRequest(BaseModel):
+    """Request model for workflow evaluation."""
+    testset_path: str
+    target_api_url: str
+    target_api_method: str = "POST"
+    target_api_key_header: Optional[str] = None
+    target_api_key_value: Optional[str] = None
+    target_api_question_field: str = "question"
+    target_api_response_field: str = "response"
+    judge_model_provider: str = "openai"
+    judge_model_name: str = "gpt-4-0613"
+    # Dynamic API Keys for Judge LLM
+    judge_openai_api_key: Optional[str] = None
+    judge_gemini_api_key: Optional[str] = None
+    judge_ollama_base_url: Optional[str] = None
+    metrics: List[str] = Field(default_factory=lambda: ["answer_accuracy"])
+    output_folder: str
+    scenario_name: str
+
+
+@router.post("/workflow/run-evaluation")
+async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
+    """
+    Run evaluation on a testset using user's API and RAGAS metrics.
+    
+    This endpoint:
+    1. Loads the testset from Excel
+    2. Calls the user's API for each question to get responses
+    3. Uses RAGAS with GPT-4 to evaluate the responses
+    4. Returns evaluation scores and saves results
+    """
+    try:
+        import pandas as pd
+        import requests
+        import time
+        from datetime import datetime
+        from langchain_openai import ChatOpenAI
+        from ragas.llms import LangchainLLMWrapper
+        from ragas import evaluate, aevaluate
+        # Import RAGAS 0.3.6 metrics (all are classes that need instantiation)
+        from ragas.metrics import (
+            AnswerAccuracy,
+            AnswerCorrectness,
+            AnswerRelevancy,
+            AnswerSimilarity,
+            ContextPrecision,
+            ContextRecall,
+            ContextRelevance,
+            Faithfulness,
+            FactualCorrectness,
+            ResponseRelevancy
+        )
+        from datasets import Dataset
+        from configs.settings import settings
+        import os
+        
+        start_time = time.time()
+        
+        logger.info(f"Starting workflow evaluation")
+        logger.info(f"Testset path received: {request.testset_path}")
+        logger.info(f"Target API URL: {request.target_api_url}")
+        logger.info(f"Selected metrics: {request.metrics}")
+        
+        # Step 1: Load testset
+        if not os.path.exists(request.testset_path):
+            logger.error(f"Testset file not found: {request.testset_path}")
+            raise FileNotFoundError(f"測試集檔案不存在: {request.testset_path}")
+        
+        df = pd.read_excel(request.testset_path)
+        logger.info(f"Loaded {len(df)} test cases from {request.testset_path}")
+        
+        # Step 2: Call user's API to get responses
+        logger.info(f"Calling user API: {request.target_api_url}")
+        
+        responses = []
+        for idx, row in df.iterrows():
+            question = row.get('question', '')
+            
+            # Build API request
+            headers = {'Content-Type': 'application/json'}
+            if request.target_api_key_header and request.target_api_key_value:
+                headers[request.target_api_key_header] = request.target_api_key_value
+            
+            payload = {request.target_api_question_field: question}
+            
+            # Add mode field for AnythingLLM compatibility
+            if 'anythingllm' in request.target_api_url.lower() or 'workspace' in request.target_api_url.lower():
+                payload['mode'] = 'chat'
+            
+            try:
+                if request.target_api_method == "POST":
+                    api_response = requests.post(
+                        request.target_api_url,
+                        json=payload,
+                        headers=headers,
+                        timeout=60  # Increase timeout for LLM responses
+                    )
+                else:
+                    api_response = requests.get(
+                        request.target_api_url,
+                        params=payload,
+                        headers=headers,
+                        timeout=30
+                    )
+                
+                if api_response.status_code == 200:
+                    response_data = api_response.json()
+                    
+                    # Extract response based on field path
+                    response_text = response_data
+                    for field in request.target_api_response_field.split('.'):
+                        if isinstance(response_text, dict):
+                            response_text = response_text.get(field, '')
+                        else:
+                            break
+                    
+                    responses.append(str(response_text))
+                    logger.info(f"Got response for question {idx+1}/{len(df)}")
+                else:
+                    logger.error(f"API call failed for question {idx}: {api_response.status_code}")
+                    responses.append("")
+                    
+            except Exception as e:
+                logger.error(f"Error calling API for question {idx}: {str(e)}")
+                responses.append("")
+        
+        # Add responses to dataframe
+        df['response'] = responses
+        
+        # Step 3: Initialize Judge LLM (use custom API keys if provided)
+        logger.info(f"Initializing Judge LLM: {request.judge_model_provider}/{request.judge_model_name}")
+        
+        if request.judge_model_provider == "openai":
+            # Use custom API key if provided, otherwise use settings
+            api_key = request.judge_openai_api_key or settings.openai_api_key
+            if not api_key:
+                raise ValueError("OpenAI API key is required. Please provide it in the form or set OPENAI_API_KEY in .env")
+            
+            chat_llm = ChatOpenAI(
+                model_name=request.judge_model_name,
+                temperature=0,
+                openai_api_key=api_key
+            )
+        elif request.judge_model_provider == "gemini":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            # Use custom API key if provided, otherwise use settings
+            api_key = request.judge_gemini_api_key or settings.gemini_api_key
+            if not api_key:
+                raise ValueError("Gemini API key is required. Please provide it in the form or set GEMINI_API_KEY in .env")
+            
+            chat_llm = ChatGoogleGenerativeAI(
+                model=request.judge_model_name,
+                google_api_key=api_key,
+                temperature=0
+            )
+        elif request.judge_model_provider == "ollama":
+            # Use custom base URL if provided, otherwise use settings
+            base_url = request.judge_ollama_base_url or settings.ollama_base_url
+            if not base_url:
+                raise ValueError("Ollama base URL is required. Please provide it in the form or set OLLAMA_BASE_URL in .env")
+            
+            chat_llm = ChatOpenAI(
+                model_name=request.judge_model_name,
+                base_url=base_url,
+                api_key="ollama",
+                temperature=0
+            )
+        else:
+            raise ValueError(f"Unsupported judge model provider: {request.judge_model_provider}")
+        
+        evaluator_llm = LangchainLLMWrapper(chat_llm)
+        
+        # Step 4: Prepare dataset for RAGAS
+        evaluation_data = []
+        for _, row in df.iterrows():
+            data_point = {
+                "question": row.get('question', ''),
+                "answer": row.get('response', ''),  # The response from user's API
+                "ground_truth": row.get('answer', row.get('reference', ''))  # Reference answer
+            }
+            
+            # Add context if available
+            if 'context' in row and pd.notna(row['context']):
+                data_point['contexts'] = [str(row['context'])]
+            
+            evaluation_data.append(data_point)
+        
+        evaluation_dataset = Dataset.from_list(evaluation_data)
+        
+        # Step 5: Select metrics (instantiate metric classes)
+        selected_metrics = []
+        metric_map = {
+            # Core metrics - 用於基本評估
+            'answer_accuracy': AnswerAccuracy(),
+            'answer_correctness': AnswerCorrectness(),
+            'factual_correctness': FactualCorrectness(),
+            'context_precision': ContextPrecision(),
+            'context_recall': ContextRecall(),
+            
+            # Advanced metrics - 用於深度評估
+            'faithfulness': Faithfulness(),
+            'answer_relevancy': AnswerRelevancy(),
+            'answer_similarity': AnswerSimilarity(),
+            'semantic_similarity': AnswerSimilarity(),  # Alias
+            'context_relevance': ContextRelevance(),
+            'response_relevancy': ResponseRelevancy()
+        }
+        
+        for metric_name in request.metrics:
+            if metric_name in metric_map:
+                selected_metrics.append(metric_map[metric_name])
+        
+        if not selected_metrics:
+            selected_metrics = [AnswerAccuracy()]  # Default metric
+        
+        logger.info(f"Running evaluation with metrics: {request.metrics}")
+        
+        # Step 6: Run evaluation (use async version to avoid uvloop conflict)
+        import asyncio
+        result = await aevaluate(
+            dataset=evaluation_dataset,
+            metrics=selected_metrics,
+            llm=evaluator_llm
+        )
+        
+        # Step 7: Save results
+        output_dir = os.path.join(request.output_folder, request.scenario_name, "04_evaluation")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        result_file = os.path.join(output_dir, f"evaluation_results_{timestamp}.xlsx")
+        
+        # Create detailed results dataframe
+        results_df = df.copy()
+        
+        # RAGAS 0.3.6 returns a Dataset-like object with scores
+        # Convert to pandas DataFrame first
+        try:
+            import pandas as pd
+            # Get the scores as a dictionary
+            result_dict = result.to_pandas() if hasattr(result, 'to_pandas') else result
+            
+            # Add metric columns to results
+            for metric_name in request.metrics:
+                try:
+                    # Try different ways to access the metric values
+                    if isinstance(result_dict, pd.DataFrame) and metric_name in result_dict.columns:
+                        results_df[metric_name] = result_dict[metric_name]
+                    elif hasattr(result, metric_name):
+                        results_df[metric_name] = getattr(result, metric_name)
+                    elif hasattr(result, '_scores_dict') and metric_name in result._scores_dict:
+                        results_df[metric_name] = result._scores_dict[metric_name]
+                except Exception as e:
+                    logger.warning(f"Could not add metric {metric_name} to results: {e}")
+                    results_df[metric_name] = None
+        except Exception as e:
+            logger.error(f"Error processing results: {e}")
+        
+        results_df.to_excel(result_file, index=False)
+        
+        # Calculate average scores
+        scores = {}
+        for metric_name in request.metrics:
+            try:
+                # Try to get the metric value from result
+                metric_value = None
+                
+                if isinstance(result_dict, pd.DataFrame) and metric_name in result_dict.columns:
+                    metric_value = result_dict[metric_name].mean()
+                elif hasattr(result, metric_name):
+                    val = getattr(result, metric_name)
+                    if hasattr(val, '__iter__') and not isinstance(val, str):
+                        metric_value = sum(val) / len(val) if len(val) > 0 else 0
+                    else:
+                        metric_value = float(val)
+                elif hasattr(result, '_scores_dict') and metric_name in result._scores_dict:
+                    val = result._scores_dict[metric_name]
+                    if hasattr(val, '__iter__') and not isinstance(val, str):
+                        metric_value = sum(val) / len(val) if len(val) > 0 else 0
+                    else:
+                        metric_value = float(val)
+                
+                scores[metric_name] = float(metric_value) if metric_value is not None else 0.0
+            except Exception as e:
+                logger.warning(f"Could not calculate score for {metric_name}: {e}")
+                scores[metric_name] = 0.0
+        
+        evaluation_time = time.time() - start_time
+        
+        logger.info(f"Evaluation completed in {evaluation_time:.2f}s")
+        logger.info(f"Results saved to {result_file}")
+        logger.info(f"Scores: {scores}")
+        
+        return {
+            "success": True,
+            "scores": scores,
+            "total_tests": len(df),
+            "evaluation_time": f"{evaluation_time:.2f}s",
+            "result_file": result_file
+        }
+        
+    except Exception as e:
+        logger.error(f"Error running workflow evaluation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/download")
+async def download_evaluation_result(file_path: str):
+    """Download evaluation result file."""
+    try:
+        from fastapi.responses import FileResponse
+        import os
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        return FileResponse(
+            path=file_path,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            filename=os.path.basename(file_path)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error downloading file: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

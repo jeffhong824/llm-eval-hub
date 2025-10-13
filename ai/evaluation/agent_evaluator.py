@@ -59,10 +59,21 @@ class AgentEvaluationResult:
 class AgentEvaluator:
     """Evaluates Agent systems using task scenarios."""
     
-    def __init__(self, judge_model_type: JudgeModelType, judge_model: str):
+    def __init__(
+        self, 
+        judge_model_type: JudgeModelType, 
+        judge_model: str,
+        conversation_llm_provider: str = "openai",
+        conversation_llm_model: str = "gpt-4"
+    ):
         self.judge_model_type = judge_model_type
         self.judge_model = judge_model
         self.multi_judge = MultiModelJudge()
+        
+        # LLM for generating user responses and judging goal achievement
+        self.conversation_llm_provider = conversation_llm_provider
+        self.conversation_llm_model = conversation_llm_model
+        self.conversation_llm = self._create_conversation_llm()
     
     def load_testset(self, excel_path: str) -> List[AgentTestCase]:
         """Load Agent testset from Excel file."""
@@ -184,49 +195,155 @@ class AgentEvaluator:
         return conversation
     
     def _is_task_complete(self, test_case: AgentTestCase, conversation: List[AgentConversationTurn]) -> bool:
-        """Check if the task is complete based on conversation."""
-        if not conversation:
+        """Check if the task is complete based on conversation using LLM judge."""
+        if not conversation or len(conversation) < 2:
             return False
         
-        # Simple heuristic: if agent mentions completion keywords
-        last_agent_message = conversation[-1].message.lower()
-        completion_keywords = ['完成', '完成任務', '任務完成', 'done', 'completed', 'finished']
+        # Use LLM to judge if goal is achieved
+        conversation_text = "\n\n".join([
+            f"{'用戶' if turn.speaker == 'user' else 'Agent'}: {turn.message}"
+            for turn in conversation
+        ])
         
-        return any(keyword in last_agent_message for keyword in completion_keywords)
+        prompt = f"""請判斷以下對話中，Agent 是否已經達成用戶的目標。
+
+## 用戶角色和目標
+角色背景: {test_case.user_persona}
+任務情境: {test_case.task_context}
+初始請求: {test_case.initial_request}
+期望結果: {test_case.expected_outcome}
+成功標準: {test_case.success_criteria}
+
+## 對話記錄
+{conversation_text}
+
+## 判斷標準
+請根據以下標準判斷任務是否完成：
+1. Agent 是否提供了用戶期望的結果
+2. 是否滿足成功標準中列出的要求
+3. 用戶的核心問題是否得到解決
+4. 對話是否達到了自然的結束點
+
+請回答 "YES" 或 "NO"，並簡短說明理由。
+
+格式：
+```json
+{{
+  "goal_achieved": true/false,
+  "confidence": 0.0-1.0,
+  "reason": "簡短說明理由"
+}}
+```
+
+只返回JSON，不要有其他文字。"""
+
+        try:
+            response = self.conversation_llm.invoke(prompt)
+            content = response.content.strip()
+            
+            # Clean up response
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+            
+            result = json.loads(content)
+            goal_achieved = result.get("goal_achieved", False)
+            confidence = result.get("confidence", 0.0)
+            
+            logger.info(f"Goal achievement check: {goal_achieved} (confidence: {confidence})")
+            logger.info(f"Reason: {result.get('reason', 'N/A')}")
+            
+            # Only return True if confidence is high enough
+            return goal_achieved and confidence >= 0.7
+            
+        except Exception as e:
+            logger.error(f"Error checking task completion: {e}")
+            # Fallback to simple keyword check
+            last_agent_message = conversation[-1].message.lower()
+            completion_keywords = ['完成', '完成任務', '任務完成', 'done', 'completed', 'finished']
+            return any(keyword in last_agent_message for keyword in completion_keywords)
     
     async def _generate_next_user_message(self, test_case: AgentTestCase, conversation: List[AgentConversationTurn]) -> str:
-        """Generate next user message based on persona and conversation context."""
-        # This is a simplified version - in practice, you might want to use another LLM
-        # to generate realistic follow-up messages based on the user persona
+        """Generate next user message based on persona and conversation context using LLM."""
+        # Build conversation context
+        conversation_text = "\n\n".join([
+            f"{'用戶' if turn.speaker == 'user' else 'Agent'}: {turn.message}"
+            for turn in conversation[-6:]  # Use last 3 exchanges for context
+        ])
         
-        persona = test_case.user_persona
-        communication_style = persona.get('communication_style', '')
+        # Get the last agent response
+        last_agent_message = conversation[-1].message if conversation else ""
         
-        # Simple follow-up messages based on communication style
-        if '直接' in communication_style or 'direct' in communication_style.lower():
-            follow_ups = [
-                "我需要更多詳細信息",
-                "這個回答不夠清楚",
-                "請提供具體的步驟",
-                "還有其他選擇嗎？"
-            ]
-        elif '好奇' in communication_style or 'curious' in communication_style.lower():
-            follow_ups = [
-                "這個很有趣，能告訴我更多嗎？",
-                "為什麼會這樣？",
-                "還有什麼其他相關的嗎？",
-                "我想了解更多細節"
-            ]
-        else:
-            follow_ups = [
-                "謝謝，但我還有其他問題",
-                "這個信息很有用",
-                "請繼續說明",
-                "我需要更多幫助"
-            ]
-        
-        import random
-        return random.choice(follow_ups)
+        prompt = f"""你現在要扮演一個真實的用戶，根據你的角色特徵和當前對話情境，生成下一個自然的回應。
+
+## 你的角色資訊
+{json.dumps(test_case.user_persona, ensure_ascii=False, indent=2)}
+
+## 任務情境
+- 任務情境: {test_case.task_context}
+- 你的目標: {test_case.expected_outcome}
+- 初始請求: {test_case.initial_request}
+
+## 當前對話記錄
+{conversation_text}
+
+## Agent 的最新回應
+{last_agent_message}
+
+## 你的任務
+根據你的角色特徵（個性、溝通風格、需求、擔憂等），生成一個自然的下一句話。
+
+考慮因素：
+1. 你的溝通風格和語言特色
+2. 你的需求是否得到滿足
+3. 你還有什麼疑問或擔憂
+4. 根據 Agent 的回應，你的下一步行動
+5. 保持角色一致性
+6. 如果目標已達成且滿意，可以表達感謝並結束對話
+7. 如果還有疑問或需要更多信息，繼續追問
+
+請生成一個簡短、自然的用戶回應（1-3句話）。
+
+格式：
+```json
+{{
+  "message": "你的回應內容",
+  "intent": "clarification|follow_up|confirmation|new_question|satisfaction|concern",
+  "reasoning": "為什麼這樣回應的簡短理由"
+}}
+```
+
+只返回JSON，不要有其他文字。"""
+
+        try:
+            response = self.conversation_llm.invoke(prompt)
+            content = response.content.strip()
+            
+            # Clean up response
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+            
+            result = json.loads(content)
+            message = result.get("message", "")
+            intent = result.get("intent", "follow_up")
+            
+            logger.info(f"Generated next user message (intent: {intent}): {message[:100]}...")
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Error generating next user message: {e}")
+            # Fallback to simple follow-up
+            return "請繼續說明，我需要更多資訊。"
     
     async def evaluate_single_case(self, test_case: AgentTestCase, api_config: Dict[str, Any], max_turns: int = 30) -> AgentEvaluationResult:
         """Evaluate a single Agent test case."""

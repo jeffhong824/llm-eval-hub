@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 測試工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            color: #667eea;
+            margin-bottom: 30px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        
+        input, textarea, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        textarea {
+            min-height: 100px;
+            font-family: monospace;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .result-box {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .result-box h3 {
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        
+        pre {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 API 測試工具</h1>
+        <p style="margin-bottom: 30px; color: #666;">測試您的 API 端點，確認請求和回應格式。</p>
+        
+        <form id="test-form">
+            <div class="form-group">
+                <label for="api-url">API 端點 URL *</label>
+                <input type="text" id="api-url" required value="http://34.80.232.70:3002/api/v1/workspace/homi/chat">
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="api-method">HTTP 方法</label>
+                    <select id="api-method">
+                        <option value="POST">POST</option>
+                        <option value="GET">GET</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="auth-type">認證方式</label>
+                    <select id="auth-type" onchange="updateAuthFields()">
+                        <option value="bearer">Bearer Token</option>
+                        <option value="api-key">API Key (Header: api-key)</option>
+                        <option value="x-api-key">X-API-Key</option>
+                        <option value="authorization">Authorization (直接)</option>
+                        <option value="custom">自定義 Header</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-group" id="custom-header-group" style="display: none;">
+                <label for="custom-header">自定義 Header 名稱</label>
+                <input type="text" id="custom-header" placeholder="例如: X-Custom-Auth">
+            </div>
+            
+            <div class="form-group">
+                <label for="api-key">API Key</label>
+                <input type="text" id="api-key" value="KYYC4B8-K684SKD-K8RZWR9-HPXTERS">
+            </div>
+            
+            <div class="form-group">
+                <label for="request-body">請求 Body (JSON)</label>
+                <textarea id="request-body">{"message": "你好，請介紹一下自己"}</textarea>
+            </div>
+            
+            <button type="submit" class="btn btn-primary">🚀 測試 API</button>
+        </form>
+        
+        <div id="result" style="display: none;"></div>
+    </div>
+    
+    <script>
+        function updateAuthFields() {
+            const authType = document.getElementById('auth-type').value;
+            const customHeaderGroup = document.getElementById('custom-header-group');
+            customHeaderGroup.style.display = authType === 'custom' ? 'block' : 'none';
+        }
+        
+        document.getElementById('test-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<div class="alert alert-success">⏳ 正在測試 API...</div>';
+            
+            const apiUrl = document.getElementById('api-url').value;
+            const method = document.getElementById('api-method').value;
+            const authType = document.getElementById('auth-type').value;
+            const apiKey = document.getElementById('api-key').value;
+            const requestBodyText = document.getElementById('request-body').value;
+            
+            try {
+                // Parse request body
+                const requestBody = JSON.parse(requestBodyText);
+                
+                // Build headers based on auth type
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                
+                switch (authType) {
+                    case 'bearer':
+                        headers['Authorization'] = `Bearer ${apiKey}`;
+                        break;
+                    case 'api-key':
+                        headers['api-key'] = apiKey;
+                        break;
+                    case 'x-api-key':
+                        headers['X-API-Key'] = apiKey;
+                        break;
+                    case 'authorization':
+                        headers['Authorization'] = apiKey;
+                        break;
+                    case 'custom':
+                        const customHeader = document.getElementById('custom-header').value;
+                        if (customHeader) {
+                            headers[customHeader] = apiKey;
+                        }
+                        break;
+                }
+                
+                // Make request
+                const startTime = Date.now();
+                const response = await fetch(apiUrl, {
+                    method: method,
+                    headers: headers,
+                    body: method === 'POST' ? JSON.stringify(requestBody) : undefined
+                });
+                
+                const endTime = Date.now();
+                const responseTime = endTime - startTime;
+                
+                const responseText = await response.text();
+                let responseData;
+                
+                try {
+                    responseData = JSON.parse(responseText);
+                } catch {
+                    responseData = responseText;
+                }
+                
+                // Display result
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            ✅ API 測試成功！
+                        </div>
+                        <div class="result-box">
+                            <h3>請求資訊</h3>
+                            <p><strong>URL:</strong> ${apiUrl}</p>
+                            <p><strong>方法:</strong> ${method}</p>
+                            <p><strong>狀態碼:</strong> ${response.status}</p>
+                            <p><strong>回應時間:</strong> ${responseTime}ms</p>
+                            
+                            <h3 style="margin-top: 20px;">使用的 Headers</h3>
+                            <pre>${JSON.stringify(headers, null, 2)}</pre>
+                            
+                            <h3 style="margin-top: 20px;">請求 Body</h3>
+                            <pre>${JSON.stringify(requestBody, null, 2)}</pre>
+                            
+                            <h3 style="margin-top: 20px;">回應內容</h3>
+                            <pre>${typeof responseData === 'object' ? JSON.stringify(responseData, null, 2) : responseData}</pre>
+                            
+                            <h3 style="margin-top: 20px;">📋 評估表單配置建議</h3>
+                            <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                                <p><strong>API Key Header:</strong> ${Object.keys(headers).find(k => k.toLowerCase().includes('auth') || k.toLowerCase().includes('key'))}</p>
+                                <p><strong>API Key Value:</strong> ${headers[Object.keys(headers).find(k => k.toLowerCase().includes('auth') || k.toLowerCase().includes('key'))]}</p>
+                                <p><strong>問題欄位名稱:</strong> ${Object.keys(requestBody)[0]}</p>
+                                ${typeof responseData === 'object' ? `<p><strong>回答欄位路徑:</strong> ${Object.keys(responseData).filter(k => k.includes('response') || k.includes('text') || k.includes('answer')).join(', ')}</p>` : ''}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-error">
+                            ❌ API 測試失敗
+                        </div>
+                        <div class="result-box">
+                            <h3>錯誤資訊</h3>
+                            <p><strong>狀態碼:</strong> ${response.status}</p>
+                            <p><strong>狀態文字:</strong> ${response.statusText}</p>
+                            
+                            <h3 style="margin-top: 20px;">錯誤回應</h3>
+                            <pre>${typeof responseData === 'object' ? JSON.stringify(responseData, null, 2) : responseData}</pre>
+                            
+                            <h3 style="margin-top: 20px;">💡 可能的解決方案</h3>
+                            <ul style="margin-left: 20px; margin-top: 10px;">
+                                <li>檢查 API Key 是否正確</li>
+                                <li>嘗試不同的認證方式（使用上方下拉選單）</li>
+                                <li>確認工作區 slug (homi) 是否正確</li>
+                                <li>檢查 API 端點路徑是否正確</li>
+                                <li>確認網路連線正常</li>
+                            </ul>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="alert alert-error">
+                        ❌ 錯誤：${error.message}
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>
+

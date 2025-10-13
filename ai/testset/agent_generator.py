@@ -6,7 +6,7 @@ Generates Agent test sets from documents by creating task-oriented conversations
 
 import os
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 import pandas as pd
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -109,31 +109,89 @@ class AgentTestsetGenerator:
             logger.error(f"Error chunking documents: {e}")
             raise
     
-    def generate_agent_tasks_for_chunk(self, chunk: str, num_tasks: int = 3, language: str = "繁體中文") -> List[Dict[str, Any]]:
-        """Generate task-oriented conversations for a single chunk."""
+    def generate_agent_tasks_for_chunk(
+        self, 
+        chunk: str, 
+        num_tasks: int = 3, 
+        language: str = "繁體中文",
+        personas: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
+        """Generate task-oriented conversations for a single chunk, optionally using specific personas."""
         try:
             # Load system prompt
             from ai.resources.prompt_manager import prompt_manager
             system_prompt = prompt_manager.get_agent_task_generation_prompt()
             
+            # Build persona context if provided
+            persona_context = ""
+            if personas and len(personas) > 0:
+                persona_context = "\n## 預定義用戶角色\n\n請使用以下真實用戶角色來生成任務場景。每個任務應該對應一個具體的角色，並反映該角色的背景、需求和最終目標：\n\n"
+                for i, persona in enumerate(personas[:num_tasks], 1):
+                    # Extract core information
+                    basic_info = persona.get('basic_info', {})
+                    needs_goals = persona.get('needs_and_goals', {})
+                    behavior = persona.get('behavior_patterns', {})
+                    psychology = persona.get('psychology', {})
+                    comm_style = persona.get('communication_style', {})
+                    
+                    persona_context += f"""
+### 角色 {i}: {persona.get('persona_name', 'Unknown')}
+
+**基本資訊**:
+- ID: {persona.get('persona_id', 'N/A')}
+- 年齡: {basic_info.get('age', 'N/A')}
+- 職業: {basic_info.get('occupation', 'N/A')}
+- 背景: {basic_info.get('education', 'N/A')}
+
+**核心需求和目標**:
+- 痛點: {', '.join(needs_goals.get('pain_points', [])[:3])}
+- 核心需求: {', '.join(needs_goals.get('core_needs', [])[:3])}
+- 短期目標: {', '.join(needs_goals.get('short_term_goals', [])[:2])}
+- 預算範圍: {needs_goals.get('budget_range', 'N/A')}
+- 決策標準: {', '.join(needs_goals.get('decision_criteria', [])[:3])}
+
+**行為模式**:
+- 決策風格: {behavior.get('decision_style', 'N/A')}
+- 資訊搜尋: {behavior.get('info_seeking', 'N/A')}
+- 溝通偏好: {behavior.get('communication_preference', 'N/A')}
+
+**心理特徵**:
+- 個性: {', '.join(psychology.get('personality_traits', [])[:3])}
+- 態度: {psychology.get('attitude', 'N/A')}
+- 動機: {psychology.get('motivation', 'N/A')}
+- 擔憂: {', '.join(psychology.get('anxieties', [])[:2])}
+
+**溝通風格**:
+- 提問方式: {comm_style.get('questioning_approach', 'N/A')}
+- 語言特色: {comm_style.get('language_characteristics', 'N/A')}
+
+**情境專屬資訊**:
+{json.dumps(persona.get('scenario_specific', {}), ensure_ascii=False, indent=2) if persona.get('scenario_specific') else 'N/A'}
+
+---
+"""
+                persona_context += "\n**重要指示**: 每個任務場景必須基於上述某個角色，任務的最終目標應該直接對應該角色的核心需求和目標。\n"
+            
             prompt = f"""{system_prompt}
 
 ## Specific Task
-Please generate {num_tasks} diverse task scenarios with clear user personas based on the following text fragment:
+Please generate {num_tasks} diverse task scenarios {'using the predefined personas listed below' if personas else 'with clear user personas'} based on the following text fragment:
 
 Text Fragment:
 {chunk}
 
 Language Requirement: {language}
+{persona_context}
 
 Please ensure:
 1. Generate exactly {num_tasks} task scenarios
-2. Each task has a distinct, well-defined user persona
+2. {'Each task MUST use one of the predefined personas listed above. Use their exact details and characteristics.' if personas else 'Each task has a distinct, well-defined user persona'}
 3. Task types are diverse, covering different user needs
-4. User personas are realistic and memorable
+4. {'The task final goal should directly address the personas core needs and pain points' if personas else 'User personas are realistic and memorable'}
 5. Tasks focus on clear success criteria for evaluation
-6. Use natural, conversational language patterns
+6. Use natural, conversational language patterns that match the persona's communication style
 7. Each task should be practical and realistic
+{'8. Include the persona_id and persona_name in the output to show which persona this task is for' if personas else ''}
 
 Return Format:
 ```json
@@ -309,9 +367,16 @@ Return only the JSON array, no additional text.
             logger.warning(f"Using fallback tasks due to error: {len(fallback_tasks)} tasks")
             return fallback_tasks
     
-    def generate_testset(self, documents_folder: str, output_folder: str, 
-                        chunk_size: int = 5000, chunk_overlap: int = 200, 
-                        tasks_per_chunk: int = 3, language: str = "繁體中文") -> Dict[str, Any]:
+    def generate_testset(
+        self, 
+        documents_folder: str, 
+        output_folder: str, 
+        chunk_size: int = 5000, 
+        chunk_overlap: int = 200, 
+        tasks_per_chunk: int = 3, 
+        language: str = "繁體中文",
+        personas: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
         """Generate complete Agent testset."""
         try:
             logger.info(f"Starting Agent testset generation from {documents_folder}")
@@ -330,7 +395,17 @@ Return only the JSON array, no additional text.
             all_tasks = []
             for i, chunk in enumerate(chunks):
                 logger.info(f"Processing chunk {i+1}/{len(chunks)}")
-                tasks = self.generate_agent_tasks_for_chunk(chunk, tasks_per_chunk, language)
+                # Select different personas for each chunk if available
+                chunk_personas = None
+                if personas and len(personas) > 0:
+                    # Rotate through personas for variety
+                    start_idx = (i * tasks_per_chunk) % len(personas)
+                    chunk_personas = []
+                    for j in range(tasks_per_chunk):
+                        persona_idx = (start_idx + j) % len(personas)
+                        chunk_personas.append(personas[persona_idx])
+                
+                tasks = self.generate_agent_tasks_for_chunk(chunk, tasks_per_chunk, language, chunk_personas)
                 
                 # Add chunk metadata
                 for task in tasks:

@@ -1,170 +1,298 @@
-# LLM Evaluation Hub
+# 🧠 LLM Evaluation Hub
 
-A universal LLM evaluation platform that combines RAGAS and LangSmith to provide comprehensive evaluation capabilities for RAG systems, agents, and general LLM applications.
+> **一個完整的 RAG & Agent 系統自動化測試平台**  
+> 從情境描述到評估，只需簡單點擊！
 
-## Features
+## 📖 這個專案是什麼？
 
-- **Automated Testset Generation**: Generate synthetic QA pairs from documents using knowledge graphs
-- **Multi-dimensional Evaluation**: Support for accuracy, factual correctness, precision, recall, F1, and more
-- **LLM Judge System**: Use other LLMs to evaluate responses with custom criteria
-- **Agent Evaluation**: Specialized metrics for agent systems including average turn and success rate
-- **RAGAS Integration**: Leverage RAGAS metrics for RAG system evaluation
-- **LangSmith Integration**: Use LangSmith for evaluation tracking and monitoring
-- **RESTful API**: Complete API for programmatic access
-- **Docker Support**: Easy deployment with Docker Compose
+LLM Evaluation Hub 是一個專為 **RAG（檢索增強生成）** 和 **Agent（對話代理）** 系統設計的全自動化測試平台。
 
-## Quick Start
+### 🎯 主要目標
 
-### Prerequisites
+解決 LLM 應用開發中最痛的問題：**如何測試你的 RAG/Agent 系統？**
 
-- Python 3.9+
-- Docker and Docker Compose
-- OpenAI API key
-- Google Gemini API key
-- LangSmith API key
+傳統方式需要：
+- ❌ 手動編寫大量測試問題
+- ❌ 自己想像各種用戶角色
+- ❌ 人工檢查每個回答
+- ❌ 難以模擬真實用戶行為
 
-### Installation
+**我們的解決方案：**
+- ✅ **自動生成真實用戶角色**：只需描述使用情境，系統自動生成 10+ 個超詳細的用戶角色
+- ✅ **自動生成測試集**：基於角色特徵生成真實的問題或任務
+- ✅ **自動化評估**：使用 LLM Judge 和 RAGAS 指標自動評估系統表現
+- ✅ **智能對話模擬**：Agent 測試中，LLM 自動扮演用戶進行多輪對話
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd llm-eval-hub
-   ```
+### 🔄 完整工作流程
 
-2. **Set up environment**
-   ```bash
-   make setup
-   cp env.example .env
-   ```
-
-3. **Configure environment variables**
-   Edit `.env` file with your API keys:
-   ```bash
-   LANGSMITH_API_KEY=lsv2_pt_your_api_key_here
-   OPENAI_API_KEY=your_openai_api_key_here
-   GEMINI_API_KEY=your_gemini_api_key_here
-   SECRET_KEY=your-secret-key-here
-   ```
-
-4. **Run with Docker Compose**
-   ```bash
-   make up
-   ```
-
-5. **Access the application**
-   - **Web Interface**: http://localhost:8000
-   - **API Documentation**: http://localhost:8000/docs
-   - **Health Check**: http://localhost:8000/health
-
-### Local Development
-
-1. **Install dependencies**
-   ```bash
-   make install
-   ```
-
-2. **Run the application**
-   ```bash
-   make run
-   ```
-
-## Web Interface
-
-The platform includes a modern web interface accessible at http://localhost:8000 with the following features:
-
-### Dashboard
-- System status monitoring
-- Recent activity tracking
-- Quick access to all features
-
-### Scenario to Documents
-- Convert scenario prompts to structured documents
-- Specify output folder and number of documents
-- Generate comprehensive documentation from descriptions
-
-### RAG Testset Generation
-- Load documents from folder using LangChain loaders
-- Support for multiple file formats (PDF, TXT, DOCX, etc.)
-- Configurable chunking with size and overlap settings
-- Generate diverse question types (single-hop, multi-hop)
-
-### Agent Testset Generation
-- Create agent scenarios with goals and success criteria
-- Export to Excel format with multiple sheets
-- Include evaluation metrics and difficulty levels
-
-### Evaluation
-- Multi-testset evaluation support
-- Multiple judge model selection (OpenAI, Gemini, Ollama, Hugging Face)
-- Comprehensive metrics selection
-- Real-time progress tracking
-
-## API Usage
-
-### Generate Documents from Scenario
-
-```bash
-# Convert scenario to documents
-curl -X POST "http://localhost:8000/api/v1/testset/scenario-to-docs" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "A student wants to learn about machine learning algorithms",
-    "output_folder": "./data/generated_docs",
-    "num_docs": 5
-  }'
+```
+情境描述
+    ↓
+自動生成 10+ 個真實用戶角色
+    ↓
+自動生成知識文件
+    ↓
+選擇測試模式（RAG / Agent）
+    ↓
+自動生成測試集（QA Pairs / 任務場景）
+    ↓
+自動化評估（RAGAS 指標 / 對話測試）
 ```
 
-### Generate RAG Testset from Folder
+### 💡 使用範例
+
+**情境**: "一個房地產媒合平台"
+
+**系統自動生成**:
+- 👤 10+ 個真實用戶角色
+  - 陳小美（32歲軟體工程師，養貓，想在內湖買房，預算2000萬...）
+  - 王大強（45歲企業主，需賣屋換屋，重視學區...）
+  - ...
+- 📚 15+ 份知識文件
+  - 購房流程指南、各區房價分析、貸款申請指南...
+- 🔍 30+ 個真實問題
+  - "我和我的貓咪想找靠近內湖科技園區的房子..."（陳小美的問題）
+  - "我想賣掉現有房子換更大的，小孩要上小學了..."（王大強的問題）
+
+**然後自動評估你的系統回答質量！**
+
+## 🚀 快速開始（3 步驟）
+
+### 步驟 1: 準備環境
+
+確保已安裝：
+- [Docker Desktop](https://www.docker.com/products/docker-desktop)
+- OpenAI API Key（必須）
+- Gemini API Key（選填）
+
+### 步驟 2: 啟動服務
 
 ```bash
-# Generate RAG testset from documents folder
-curl -X POST "http://localhost:8000/api/v1/testset/generate/rag/from-folder" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "folder_path": "./data/documents",
-    "testset_size": 10,
-    "chunk_size": 1000,
+# 1. Clone 專案
+git clone <repository-url>
+cd llm-eval-hub
+
+# 2. 創建 .env 文件（填入你的 API keys）
+cp env.example .env
+# 編輯 .env，填入你的 OPENAI_API_KEY
+
+# 3. 啟動 Docker 服務
+docker-compose up -d
+
+# 4. 查看日誌（確認啟動成功）
+docker-compose logs -f app
+```
+
+### 步驟 3: 開始使用
+
+打開瀏覽器訪問：
+
+**🎨 Web 界面（推薦新手）**
+- 完整工作流程: http://localhost:8000/static/workflow.html
+- 主控台: http://localhost:8000
+
+**📚 API 文檔**
+- Swagger UI: http://localhost:8000/docs
+
+## 🎬 使用方式
+
+### 方式 1: Web 界面（最簡單）
+
+1. 訪問 http://localhost:8000/static/workflow.html
+2. **階段 1**: 輸入使用情境 → 自動生成角色
+3. **階段 2**: 自動生成知識文件
+4. **階段 3**: 選擇 RAG 或 Agent 模式
+5. **階段 4**: 自動生成測試集
+6. **階段 5**: 執行評估
+
+### 方式 2: API 調用
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000/api/v1/testset"
+
+# 生成角色
+response = requests.post(f"{BASE_URL}/workflow/generate-personas", json={
+    "scenario_description": "你的使用情境描述...",
+    "num_personas": 10,
+    "output_folder": "/app/outputs/my_test",
+    "model_provider": "openai",
+    "model_name": "gpt-4"
+})
+
+# 繼續下一個階段...
+```
+
+## ✨ 核心功能
+
+| 功能 | 說明 | 適用場景 |
+|------|------|----------|
+| **🎭 智能角色生成** | 根據情境自動生成超詳細用戶角色 | 了解潛在用戶是誰 |
+| **📚 文件生成** | 自動生成多樣化知識文件 | 建立 RAG 知識庫 |
+| **🔍 RAG 測試集** | 生成角色化的問答對 | 測試 RAG 系統 |
+| **🤖 Agent 測試集** | 生成任務場景 | 測試對話 Agent |
+| **💬 智能對話** | LLM 扮演用戶多輪對話 | Agent 壓力測試 |
+| **📊 自動評估** | RAGAS 指標 + LLM Judge | 量化系統表現 |
+
+## 📁 輸出結構
+
+```
+outputs/
+└── your_scenario/
+    ├── 01_personas/              # 角色檔案
+    │   ├── persona_001_陳小美.md
+    │   ├── personas_summary.xlsx
+    │   └── personas_full.json
+    ├── 02_documents/             # 知識文件
+    │   ├── doc_001_購房指南.txt
+    │   └── metadata.json
+    ├── 03_rag_testset/          # RAG 測試集
+    │   └── rag_testset.xlsx
+    ├── 03_agent_testset/        # Agent 測試集
+    │   └── agent_testset.xlsx
+    └── 04_evaluation/           # 評估結果
+        ├── results.xlsx
+        └── conversation_logs/
+```
+
+## 📚 文檔
+
+- 📖 **[完整工作流程指南](docs/WORKFLOW_GUIDE.md)** - 詳細使用說明
+- 🐳 **[Docker 配置指南](docs/DOCKER_VOLUME_SETUP.md)** - 本地資料夾訪問設定
+- 📝 **[實施總結](docs/IMPLEMENTATION_SUMMARY.md)** - 技術細節
+
+## 🔧 常見問題
+
+### Q: 需要哪些 API Keys？
+A: 至少需要 OpenAI API Key。Gemini 和 Hugging Face 是選填。
+
+### Q: 生成一次測試集要多少錢？
+A: 使用 GPT-4 完整流程（10 角色 + 10 文件 + 30 測試）約 $3.50
+
+### Q: 支援中文嗎？
+A: 完全支持繁體中文和簡體中文
+
+### Q: 可以用本地模型嗎？
+A: 支持 Ollama 本地模型
+
+### Q: 如何訪問本地資料夾？
+A: 參考 [Docker Volume 配置指南](docs/DOCKER_VOLUME_SETUP.md)
+
+## 🛠️ 管理命令
+
+```bash
+# 啟動服務
+docker-compose up -d
+
+# 停止服務
+docker-compose down
+
+# 查看日誌
+docker-compose logs -f app
+
+# 重啟服務
+docker-compose restart
+
+# 重建並啟動（當更新代碼後）
+docker-compose up -d --build
+
+# 查看服務狀態
+docker-compose ps
+
+# 進入容器（debug 用）
+docker-compose exec app bash
+```
+
+## 💻 本地開發（不使用 Docker）
+
+如果你想在本地直接運行（不推薦新手）：
+
+```bash
+# 1. 創建虛擬環境
+python -m venv venv
+source venv/bin/activate  # Mac/Linux
+# 或 venv\Scripts\activate  # Windows
+
+# 2. 安裝依賴
+pip install -r requirements.txt
+
+# 3. 啟動服務
+python scripts/start.py
+```
+
+## 🔌 API 範例
+
+### 完整工作流程 API
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000/api/v1/testset"
+
+# 階段 1: 生成角色
+personas_response = requests.post(f"{BASE_URL}/workflow/generate-personas", json={
+    "scenario_description": "一個房地產媒合平台...",
+    "num_personas": 10,
+    "output_folder": "/app/outputs/real_estate",
+    "model_provider": "openai",
+    "model_name": "gpt-4"
+})
+personas_result = personas_response.json()
+
+# 階段 2: 生成文件
+documents_response = requests.post(f"{BASE_URL}/workflow/generate-documents", json={
+    "scenario_description": "一個房地產媒合平台...",
+    "num_documents": 10,
+    "output_folder": "/app/outputs/real_estate",
+    "scenario_name": personas_result["scenario_name"],
+    "model_provider": "openai",
+    "model_name": "gpt-4"
+})
+documents_result = documents_response.json()
+
+# 階段 3 & 4: 生成 RAG 測試集
+rag_response = requests.post(f"{BASE_URL}/workflow/generate-rag-testset", json={
+    "documents_folder": documents_result["documents_folder"],
+    "personas_json_path": personas_result["json_file"],
+    "output_folder": "/app/outputs/real_estate",
+    "scenario_name": personas_result["scenario_name"],
+    "model_provider": "openai",
+    "model_name": "gpt-3.5-turbo",
+    "chunk_size": 5000,
     "chunk_overlap": 200,
-    "single_hop_ratio": 0.5,
-    "multi_hop_abstract_ratio": 0.25,
-    "multi_hop_specific_ratio": 0.25
-  }'
+    "qa_per_chunk": 3
+})
+rag_result = rag_response.json()
+print(f"生成了 {rag_result['total_qa_pairs']} 個 QA pairs")
 ```
 
-### Generate Agent Testset with Excel Output
+### 查看 API 文檔
 
-```bash
-# Generate agent testset with Excel output
-curl -X POST "http://localhost:8000/api/v1/testset/generate/agent/excel" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "scenarios": [
-      {
-        "name": "Customer Support",
-        "description": "Help customer with product inquiry",
-        "goal": "Resolve customer question",
-        "expected_outcome": "Customer satisfied",
-        "difficulty": "medium",
-        "tools": ["search", "calculator"]
-      }
-    ],
-    "output_path": "./results/agent_testsets"
-  }'
-```
+訪問 http://localhost:8000/docs 查看完整的 API 文檔（Swagger UI）
 
-### Evaluate System
+## 🤝 貢獻
 
-```bash
-# Evaluate RAG system
-curl -X POST "http://localhost:8000/api/v1/evaluation/evaluate" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "testset_id": "testset_20241201_120000",
-    "llm_endpoint": "https://api.openai.com/v1/chat/completions",
-    "metrics": ["accuracy", "factual_correctness", "precision", "recall", "f1"],
-    "system_type": "rag"
-  }'
-```
+歡迎貢獻！請查看 [貢獻指南](CONTRIBUTING.md) 或直接提交 Pull Request。
+
+## 📄 License
+
+MIT License - 詳見 [LICENSE](LICENSE) 文件
+
+## 🙏 致謝
+
+- [RAGAS](https://github.com/explodinggradients/ragas) - RAG 評估框架
+- [LangChain](https://github.com/langchain-ai/langchain) - LLM 應用框架
+- [LangSmith](https://smith.langchain.com/) - LLM 追蹤和監控
+
+---
+
+**如有問題或建議，歡迎開 Issue 或聯繫我們！**
+
+### 舊版 API 使用範例（僅供參考）
+
+<details>
+<summary>點擊展開查看舊版 API 範例</summary>
 
 ### LLM Judge Evaluation
 
@@ -372,21 +500,4 @@ The application includes comprehensive monitoring:
 - **Structured Logging**: JSON-formatted logs with request tracing
 - **Error Tracking**: Comprehensive error handling and logging
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details.
-
-## Support
-
-For questions and support:
-- Create an issue in the repository
-- Check the documentation in `/docs`
-- Review examples in `/examples` and `/tutorials`
+</details>
