@@ -236,7 +236,7 @@ async def check_custom_judge_models(request: CheckModelsRequest):
                 if response.status_code == 200:
                     data = response.json()
                     # Filter for GPT models suitable for evaluation (chat models only)
-                    non_chat_keywords = ['davinci', 'curie', 'babbage', 'ada', 'instruct', 'embedding', 'whisper', 'dall-e', 'tts']
+                    non_chat_keywords = ['davinci', 'curie', 'babbage', 'ada', 'instruct', 'embedding', 'whisper', 'dall-e', 'tts', 'transcribe']
                     gpt_models = [
                         model["id"] for model in data.get("data", [])
                         if "gpt" in model["id"].lower() and 
@@ -477,6 +477,7 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
         
         # Step 3: Validate and Initialize Judge LLM (use custom API keys if provided)
         logger.info(f"Initializing Judge LLM: {request.judge_model_provider}/{request.judge_model_name}")
+        logger.info(f"Judge model details - Provider: {request.judge_model_provider}, Model: '{request.judge_model_name}'")
         
         if request.judge_model_provider == "openai":
             # Use custom API key if provided, otherwise use settings
@@ -498,11 +499,19 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                     f"• gpt-3.5-turbo-16k"
                 )
             
-            chat_llm = ChatOpenAI(
-                model_name=model_name,
-                temperature=0,
-                openai_api_key=api_key
-            )
+            # 使用RAGAS推薦的新方式
+            try:
+                from ragas.llms.base import llm_factory
+                evaluator_llm = llm_factory('openai', model=model_name, api_key=api_key)
+                logger.info(f"Using RAGAS llm_factory for {model_name}")
+            except Exception as e:
+                logger.warning(f"Failed to use llm_factory, falling back to LangchainLLMWrapper: {e}")
+                # 回退到舊方式，但使用最小參數集
+                chat_llm = ChatOpenAI(
+                    model_name=model_name,
+                    openai_api_key=api_key
+                )
+                evaluator_llm = LangchainLLMWrapper(chat_llm)
         elif request.judge_model_provider == "gemini":
             from langchain_google_genai import ChatGoogleGenerativeAI
             # Use custom API key if provided, otherwise use settings
@@ -510,27 +519,39 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
             if not api_key:
                 raise ValueError("Gemini API key is required. Please provide it in the form or set GEMINI_API_KEY in .env")
             
-            chat_llm = ChatGoogleGenerativeAI(
-                model=request.judge_model_name,
-                google_api_key=api_key,
-                temperature=0
-            )
+            try:
+                from ragas.llms.base import llm_factory
+                evaluator_llm = llm_factory('google', model=request.judge_model_name, api_key=api_key)
+                logger.info(f"Using RAGAS llm_factory for Gemini {request.judge_model_name}")
+            except Exception as e:
+                logger.warning(f"Failed to use llm_factory for Gemini, falling back to LangchainLLMWrapper: {e}")
+                chat_llm = ChatGoogleGenerativeAI(
+                    model=request.judge_model_name,
+                    google_api_key=api_key,
+                    temperature=0
+                )
+                evaluator_llm = LangchainLLMWrapper(chat_llm)
         elif request.judge_model_provider == "ollama":
             # Use custom base URL if provided, otherwise use settings
             base_url = request.judge_ollama_base_url or settings.ollama_base_url
             if not base_url:
                 raise ValueError("Ollama base URL is required. Please provide it in the form or set OLLAMA_BASE_URL in .env")
             
-            chat_llm = ChatOpenAI(
-                model_name=request.judge_model_name,
-                base_url=base_url,
-                api_key="ollama",
-                temperature=0
-            )
+            try:
+                from ragas.llms.base import llm_factory
+                evaluator_llm = llm_factory('ollama', model=request.judge_model_name, base_url=base_url)
+                logger.info(f"Using RAGAS llm_factory for Ollama {request.judge_model_name}")
+            except Exception as e:
+                logger.warning(f"Failed to use llm_factory for Ollama, falling back to LangchainLLMWrapper: {e}")
+                chat_llm = ChatOpenAI(
+                    model_name=request.judge_model_name,
+                    base_url=base_url,
+                    api_key="ollama",
+                    temperature=0
+                )
+                evaluator_llm = LangchainLLMWrapper(chat_llm)
         else:
             raise ValueError(f"Unsupported judge model provider: {request.judge_model_provider}")
-        
-        evaluator_llm = LangchainLLMWrapper(chat_llm)
         
         # Step 4: Prepare dataset for RAGAS
         evaluation_data = []
@@ -613,12 +634,32 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                 logger.info(f"Result DataFrame shape: {result_dict.shape}")
             
             # Add metric columns to results
+            # RAGAS實際使用的列名映射
+            ragas_column_mapping = {
+                'answer_accuracy': 'nv_accuracy',
+                'factual_correctness': 'factual_correctness(mode=f1)',
+                'response_relevancy': 'answer_relevancy',
+                'context_relevance': 'nv_context_relevance',
+                'semantic_similarity': 'semantic_similarity',
+                'answer_correctness': 'answer_correctness',
+                'answer_relevancy': 'answer_relevancy',
+                'answer_similarity': 'answer_similarity',
+                'context_precision': 'context_precision',
+                'context_recall': 'context_recall',
+                'faithfulness': 'faithfulness'
+            }
+            
             for metric_name in request.metrics:
                 try:
-                    # Try different ways to access the metric values
-                    if isinstance(result_dict, pd.DataFrame) and metric_name in result_dict.columns:
+                    # 首先嘗試使用映射的列名
+                    ragas_column = ragas_column_mapping.get(metric_name, metric_name)
+                    
+                    if isinstance(result_dict, pd.DataFrame) and ragas_column in result_dict.columns:
+                        results_df[metric_name] = result_dict[ragas_column]
+                        logger.info(f"Added {metric_name} from DataFrame column '{ragas_column}'")
+                    elif isinstance(result_dict, pd.DataFrame) and metric_name in result_dict.columns:
                         results_df[metric_name] = result_dict[metric_name]
-                        logger.info(f"Added {metric_name} from DataFrame column")
+                        logger.info(f"Added {metric_name} from DataFrame column '{metric_name}'")
                     elif hasattr(result, metric_name):
                         results_df[metric_name] = getattr(result, metric_name)
                         logger.info(f"Added {metric_name} from result attribute")
@@ -626,7 +667,7 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                         results_df[metric_name] = result._scores_dict[metric_name]
                         logger.info(f"Added {metric_name} from _scores_dict")
                     else:
-                        logger.warning(f"Metric {metric_name} not found in result")
+                        logger.warning(f"Metric {metric_name} not found in result (tried column '{ragas_column}')")
                         results_df[metric_name] = None
                 except Exception as e:
                     logger.warning(f"Could not add metric {metric_name} to results: {e}")
@@ -642,11 +683,16 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
         scores = {}
         for metric_name in request.metrics:
             try:
-                # Try to get the metric value from result
+                # Try to get the metric value from result using column mapping
                 metric_value = None
+                ragas_column = ragas_column_mapping.get(metric_name, metric_name)
                 
-                if isinstance(result_dict, pd.DataFrame) and metric_name in result_dict.columns:
+                if isinstance(result_dict, pd.DataFrame) and ragas_column in result_dict.columns:
+                    metric_value = result_dict[ragas_column].mean()
+                    logger.info(f"Calculated {metric_name} score from column '{ragas_column}': {metric_value}")
+                elif isinstance(result_dict, pd.DataFrame) and metric_name in result_dict.columns:
                     metric_value = result_dict[metric_name].mean()
+                    logger.info(f"Calculated {metric_name} score from column '{metric_name}': {metric_value}")
                 elif hasattr(result, metric_name):
                     val = getattr(result, metric_name)
                     if hasattr(val, '__iter__') and not isinstance(val, str):
@@ -667,10 +713,12 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                     # Replace NaN and Inf with 0.0
                     if math.isnan(float_val) or math.isinf(float_val):
                         scores[metric_name] = 0.0
+                        logger.warning(f"Metric {metric_name} had NaN/Inf value, set to 0.0")
                     else:
                         scores[metric_name] = float_val
                 else:
                     scores[metric_name] = 0.0
+                    logger.warning(f"Could not find metric {metric_name} in result")
             except Exception as e:
                 logger.warning(f"Could not calculate score for {metric_name}: {e}")
                 scores[metric_name] = 0.0
