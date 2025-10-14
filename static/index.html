@@ -2299,10 +2299,15 @@
                         const option = document.createElement('option');
                         option.value = model;
                         option.textContent = model;
-                        // Select first model by default
-                        if (index === 0) option.selected = true;
                         modelSelect.appendChild(option);
                     });
+                    
+                    // Set default selection - prefer gpt-4o-mini for OpenAI
+                    if (provider === 'openai' && models.includes('gpt-4o-mini')) {
+                        modelSelect.value = 'gpt-4o-mini';
+                    } else {
+                        modelSelect.value = models[0];
+                    }
                 } else if (!hasError) {
                     modelSelect.innerHTML = '<option value="">⚠️ 未檢測到可用模型</option>';
                     hintElement.textContent = '請輸入 API Key 後重新選擇提供商';
