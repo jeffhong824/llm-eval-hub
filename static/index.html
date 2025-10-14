@@ -377,7 +377,7 @@
                             <label for="output-folder">輸出資料夾 *</label>
                             <div style="display: flex; gap: 10px; align-items: center;">
                                 <input type="text" id="output-folder" required 
-                                    placeholder="/app/outputs/my_scenario 或您的 Mac 本地路徑" 
+                                    placeholder="/app/outputs/my_scenario" 
                                     value="/app/outputs/scenario_test"
                                     onblur="normalizeOutputFolderPath()"
                                     style="flex: 1;">
@@ -385,7 +385,7 @@
                                     檢查已有資料
                                 </button>
                             </div>
-                            <small>可以輸入容器路徑（如 <code>/app/outputs/scenario_test</code>）或 Mac 本地路徑（會自動轉換）。<br>
+                            <small>可以輸入容器路徑（如 <code>/app/outputs/scenario_test</code>）。<br>
                             點擊「檢查已有資料」來載入已存在的資料。</small>
                         </div>
                         
@@ -428,9 +428,33 @@
                         <div class="form-group">
                             <label for="persona-model-name">模型名稱</label>
                             <select id="persona-model-name">
-                                <option value="gpt-4">gpt-4</option>
+                                <option value="gpt-4o-mini">gpt-4o-mini</option>
                             </select>
-                            <small id="persona-model-hint">建議使用 GPT-4 以獲得更高質量的內容。</small>
+                            <small id="persona-model-hint">建議使用 GPT-4o-mini 以獲得更高質量的內容。</small>
+                        </div>
+                    </div>
+                    
+                    <!-- API Key 配置 -->
+                    <div style="background: #fff3e0; padding: 15px; border-radius: 8px; margin-top: 15px; margin-bottom: 15px;">
+                        <h4 style="margin: 0 0 10px 0; color: #e65100;">🔑 API Key 配置（可選）</h4>
+                        <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">如果您想使用自己的 API Key，請在下方輸入。留空則使用系統預設的 .env 配置。</p>
+                        
+                        <div class="form-group" id="persona-openai-key-group" style="display: none;">
+                            <label for="persona-openai-api-key">OpenAI API Key</label>
+                            <input type="password" id="persona-openai-api-key" placeholder="sk-...（留空使用 .env 配置）">
+                            <small>用於 OpenAI 模型的角色生成。</small>
+                        </div>
+                        
+                        <div class="form-group" id="persona-gemini-key-group" style="display: none;">
+                            <label for="persona-gemini-api-key">Gemini API Key</label>
+                            <input type="password" id="persona-gemini-api-key" placeholder="AI...（留空使用 .env 配置）">
+                            <small>用於 Gemini 模型的角色生成。</small>
+                        </div>
+                        
+                        <div class="form-group" id="persona-ollama-url-group" style="display: none;">
+                            <label for="persona-ollama-base-url">Ollama Base URL</label>
+                            <input type="text" id="persona-ollama-base-url" placeholder="http://localhost:11434（留空使用 .env 配置）">
+                            <small>用於 Ollama 模型的角色生成。</small>
                         </div>
                     </div>
                     
@@ -555,7 +579,7 @@
                     <div class="form-group" id="custom-testset-input" style="display: none;">
                         <label for="custom-testset-path">測試集 Excel 檔案路徑</label>
                         <div style="display: flex; gap: 10px; align-items: center;">
-                            <input type="text" id="custom-testset-path" placeholder="可輸入容器或 Mac 本地路徑" style="flex: 1;" onblur="normalizeTestsetPath()">
+                            <input type="text" id="custom-testset-path" placeholder="輸入測試集檔案路徑" style="flex: 1;" onblur="normalizeTestsetPath()">
                             <input type="file" id="testset-file-picker" accept=".xlsx,.xls" style="display: none;" onchange="handleTestsetFileSelect(event)">
                             <button type="button" class="btn btn-secondary" onclick="document.getElementById('testset-file-picker').click()" style="white-space: nowrap;">
                                 📁 選擇檔案
@@ -628,9 +652,9 @@
                         <div class="form-group">
                             <label for="judge-model-name">Judge 模型名稱</label>
                             <select id="judge-model-name" style="width: 100%;">
-                                <option value="">🔍 正在檢測可用模型...</option>
+                                <option value="gpt-4o-mini">gpt-4o-mini</option>
                             </select>
-                            <small id="judge-model-hint">建議使用 GPT-4 以獲得更準確的評估結果。</small>
+                            <small id="judge-model-hint">建議使用 GPT-4o-mini。</small>
                         </div>
                     </div>
                     
@@ -657,15 +681,6 @@
                             <label for="judge-ollama-base-url">Ollama Base URL</label>
                             <input type="text" id="judge-ollama-base-url" placeholder="http://localhost:11434（留空使用 .env 配置）">
                             <small>Ollama 服務的 URL。</small>
-                        </div>
-                        
-                        <div style="margin-top: 15px; padding: 10px; background: #e3f2fd; border-radius: 5px;">
-                            <small>
-                                📚 <strong>參考資源：</strong><br>
-                                • <a href="https://docs.ragas.io/en/latest/concepts/metrics/available_metrics/" target="_blank">RAGAS 指標文檔</a><br>
-                                • <a href="https://github.com/explodinggradients/ragas" target="_blank">RAGAS GitHub</a><br>
-                                • <a href="https://platform.openai.com/docs/models" target="_blank">OpenAI 模型列表</a>
-                            </small>
                         </div>
                     </div>
                     
@@ -1185,7 +1200,7 @@
                         <div class="form-group" id="rag-custom-docs-input" style="display: none;">
                             <label for="rag-custom-docs-folder">自定義文件資料夾路徑</label>
                             <div style="display: flex; gap: 10px; align-items: center;">
-                                <input type="text" id="rag-custom-docs-folder" placeholder="可輸入容器或 Mac 本地路徑" style="flex: 1;" onblur="normalizeRAGCustomDocsPath()">
+                                <input type="text" id="rag-custom-docs-folder" placeholder="輸入文件資料夾路徑" style="flex: 1;" onblur="normalizeRAGCustomDocsPath()">
                                 <input type="file" id="rag-folder-picker" webkitdirectory directory multiple style="display: none;" onchange="handleRAGFolderSelect(event)">
                                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('rag-folder-picker').click()" style="white-space: nowrap;">
                                     📁 選擇資料夾
@@ -1194,7 +1209,7 @@
                             <div id="rag-folder-info" class="alert alert-info" style="display: none; margin-top: 10px;">
                                 <!-- 文件夾選擇信息將顯示在這裡 -->
                             </div>
-                            <small>輸入包含文字檔案的資料夾路徑（Mac 路徑會自動轉換），或點擊按鈕選擇本地資料夾。系統會讀取所有 .txt, .md, .pdf 等文件。</small>
+                            <small>輸入包含文字檔案的資料夾路徑，或點擊按鈕選擇本地資料夾。系統會讀取所有 .txt, .md, .pdf 等文件。</small>
                         </div>
                         
                         <div class="form-row">
@@ -1226,10 +1241,34 @@
                             
                             <div class="form-group">
                                 <label for="rag-model-name">模型名稱</label>
-                                <select id="rag-model-name">
-                                    <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
-                                </select>
-                                <small id="rag-model-hint">建議使用 GPT-3.5-turbo 或 GPT-4。</small>
+                            <select id="rag-model-name">
+                                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                            </select>
+                            <small id="rag-model-hint">建議使用 GPT-4o-mini。</small>
+                            </div>
+                        </div>
+                        
+                        <!-- API Key 配置 -->
+                        <div style="background: #fff3e0; padding: 15px; border-radius: 8px; margin-top: 15px; margin-bottom: 15px;">
+                            <h4 style="margin: 0 0 10px 0; color: #e65100;">🔑 API Key 配置（可選）</h4>
+                            <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">如果您想使用自己的 API Key，請在下方輸入。留空則使用系統預設的 .env 配置。</p>
+                            
+                            <div class="form-group" id="rag-openai-key-group" style="display: none;">
+                                <label for="rag-openai-api-key">OpenAI API Key</label>
+                                <input type="password" id="rag-openai-api-key" placeholder="sk-...（留空使用 .env 配置）">
+                                <small>用於 OpenAI 模型的測試集生成。</small>
+                            </div>
+                            
+                            <div class="form-group" id="rag-gemini-key-group" style="display: none;">
+                                <label for="rag-gemini-api-key">Gemini API Key</label>
+                                <input type="password" id="rag-gemini-api-key" placeholder="AI...（留空使用 .env 配置）">
+                                <small>用於 Gemini 模型的測試集生成。</small>
+                            </div>
+                            
+                            <div class="form-group" id="rag-ollama-url-group" style="display: none;">
+                                <label for="rag-ollama-base-url">Ollama Base URL</label>
+                                <input type="text" id="rag-ollama-base-url" placeholder="http://localhost:11434（留空使用 .env 配置）">
+                                <small>用於 Ollama 模型的測試集生成。</small>
                             </div>
                         </div>
                         
@@ -1267,13 +1306,13 @@
                         <div class="form-group" id="agent-custom-docs-input" style="display: none;">
                             <label for="agent-custom-docs-folder">自定義文件資料夾路徑</label>
                             <div style="display: flex; gap: 10px; align-items: center;">
-                                <input type="text" id="agent-custom-docs-folder" placeholder="可輸入容器或 Mac 本地路徑" style="flex: 1;" onblur="normalizeAgentCustomDocsPath()">
+                                <input type="text" id="agent-custom-docs-folder" placeholder="輸入文件資料夾路徑" style="flex: 1;" onblur="normalizeAgentCustomDocsPath()">
                                 <input type="file" id="agent-folder-picker" webkitdirectory directory multiple style="display: none;" onchange="handleAgentFolderSelect(event)">
                                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('agent-folder-picker').click()" style="white-space: nowrap;">
                                     📁 選擇資料夾
                                 </button>
                             </div>
-                            <small>輸入包含文字檔案的資料夾路徑（Mac 路徑會自動轉換），或點擊按鈕選擇本地資料夾。系統會讀取所有 .txt, .md, .pdf 等文件。</small>
+                            <small>輸入包含文字檔案的資料夾路徑，或點擊按鈕選擇本地資料夾。系統會讀取所有 .txt, .md, .pdf 等文件。</small>
                         </div>
                         
                         <div class="form-row">
@@ -1408,8 +1447,7 @@
                 infoDiv.innerHTML = `
                     <strong>📁 已選擇資料夾: ${folderPath}</strong><br>
                     <strong>📄 包含 ${files.length} 個檔案</strong><br>
-                    <strong>📋 檔案類型: ${fileTypeInfo}</strong><br>
-                    <small>由於 Docker 容器限制，請直接貼上完整的 Mac 本地路徑，系統會自動轉換為容器路徑。</small>
+                    <strong>📋 檔案類型: ${fileTypeInfo}</strong>
                 `;
                 infoDiv.style.display = 'block';
             } else {
@@ -1423,7 +1461,7 @@
             if (files.length > 0) {
                 const firstFile = files[0];
                 const folderPath = firstFile.webkitRelativePath.split('/')[0];
-                alert(`已選擇資料夾：${folderPath}\n包含 ${files.length} 個檔案\n\n由於 Docker 容器限制，請直接貼上完整的 Mac 本地路徑，系統會自動轉換為容器路徑。`);
+                alert(`已選擇資料夾：${folderPath}\n包含 ${files.length} 個檔案`);
             }
         }
 
@@ -2011,6 +2049,21 @@
         
         // Handle RAG provider change - auto-detect models
         async function onRAGProviderChange() {
+            const provider = document.getElementById('rag-model-provider').value;
+            
+            // Toggle API Key fields
+            document.getElementById('rag-openai-key-group').style.display = 'none';
+            document.getElementById('rag-gemini-key-group').style.display = 'none';
+            document.getElementById('rag-ollama-url-group').style.display = 'none';
+            
+            if (provider === 'openai') {
+                document.getElementById('rag-openai-key-group').style.display = 'block';
+            } else if (provider === 'gemini') {
+                document.getElementById('rag-gemini-key-group').style.display = 'block';
+            } else if (provider === 'ollama') {
+                document.getElementById('rag-ollama-url-group').style.display = 'block';
+            }
+            
             await autoDetectRAGModels();
         }
         
@@ -2050,7 +2103,7 @@
                     
                     // Set default selection
                     if (provider === 'openai') {
-                        modelSelect.value = 'gpt-3.5-turbo';
+                        modelSelect.value = 'gpt-4o-mini';
                     } else if (provider === 'gemini') {
                         modelSelect.value = result[provider][0];
                     } else if (provider === 'ollama') {
@@ -2074,6 +2127,21 @@
         
         // Handle persona provider change - auto-detect models
         async function onPersonaProviderChange() {
+            const provider = document.getElementById('persona-model-provider').value;
+            
+            // Toggle API Key fields
+            document.getElementById('persona-openai-key-group').style.display = 'none';
+            document.getElementById('persona-gemini-key-group').style.display = 'none';
+            document.getElementById('persona-ollama-url-group').style.display = 'none';
+            
+            if (provider === 'openai') {
+                document.getElementById('persona-openai-key-group').style.display = 'block';
+            } else if (provider === 'gemini') {
+                document.getElementById('persona-gemini-key-group').style.display = 'block';
+            } else if (provider === 'ollama') {
+                document.getElementById('persona-ollama-url-group').style.display = 'block';
+            }
+            
             await autoDetectPersonaModels();
         }
         
@@ -2113,7 +2181,7 @@
                     
                     // Set default selection
                     if (provider === 'openai') {
-                        modelSelect.value = 'gpt-4';
+                        modelSelect.value = 'gpt-4o-mini';
                     } else if (provider === 'gemini') {
                         modelSelect.value = result[provider][0];
                     } else if (provider === 'ollama') {
@@ -2513,7 +2581,7 @@
         function handleTestsetFileSelect(event) {
             const file = event.target.files[0];
             if (file) {
-                alert(`已選擇檔案：${file.name}\n\n由於 Docker 容器限制，請直接貼上完整的 Mac 本地路徑，系統會自動轉換為容器路徑。\n\n例如：\n/Users/your-name/.../outputs/scenario_test/scenario_xxx/03_rag_testset/rag_testset.xlsx`);
+                alert(`已選擇檔案：${file.name}`);
             }
         }
         
@@ -2524,6 +2592,11 @@
                 autoDetectJudgeModels(true);  // true = use .env keys
                 autoDetectPersonaModels();     // Auto-detect persona models
                 autoDetectRAGModels();          // Auto-detect RAG models
+                
+                // Show OpenAI API Key group by default for all stages
+                document.getElementById('persona-openai-key-group').style.display = 'block';
+                document.getElementById('rag-openai-key-group').style.display = 'block';
+                document.getElementById('judge-openai-key-group').style.display = 'block';
             }, 500);
         });
     </script>
