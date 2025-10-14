@@ -563,7 +563,7 @@
             <div class="stage-content" id="stage-4">
                 <div class="stage-intro">
                     <h2>階段 4: 執行評估</h2>
-                    <p>配置您要評估的系統 API，使用 RAGAS 框架和 GPT-4 進行自動化評估。</p>
+                    <p>配置您要評估的系統 API，使用 RAGAS 框架進行自動化評估。</p>
                 </div>
                 
                 <form id="evaluation-form">
@@ -2266,7 +2266,7 @@
                         hintElement.style.color = '#d32f2f';
                     } else {
                         models = result.openai;
-                        hintElement.textContent = '建議使用 GPT-4 以獲得更準確的評估結果';
+                        hintElement.textContent = '已檢測到可用模型';
                         hintElement.style.color = '';
                     }
                 } else if (provider === 'gemini' && result.gemini && result.gemini.length > 0) {
