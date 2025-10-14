@@ -213,7 +213,7 @@ async def get_available_judge_models():
 
 @router.post("/judge-models/check-custom")
 async def check_custom_judge_models(request: CheckModelsRequest):
-    """Check available models with custom API keys."""
+    """Check available models with custom API keys or .env keys."""
     import httpx
     from configs.settings import settings
     
@@ -223,13 +223,14 @@ async def check_custom_judge_models(request: CheckModelsRequest):
         "ollama": []
     }
     
-    # Check OpenAI models
-    if request.openai_api_key:
+    # Check OpenAI models (use custom key or .env key)
+    openai_key = request.openai_api_key or settings.openai_api_key
+    if openai_key:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     "https://api.openai.com/v1/models",
-                    headers={"Authorization": f"Bearer {request.openai_api_key}"},
+                    headers={"Authorization": f"Bearer {openai_key}"},
                     timeout=10.0
                 )
                 if response.status_code == 200:
@@ -246,12 +247,13 @@ async def check_custom_judge_models(request: CheckModelsRequest):
         except Exception as e:
             result["openai"] = [f"Error: {str(e)}"]
     
-    # Check Gemini models
-    if request.gemini_api_key:
+    # Check Gemini models (use custom key or .env key)
+    gemini_key = request.gemini_api_key or settings.gemini_api_key
+    if gemini_key:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"https://generativelanguage.googleapis.com/v1beta/models?key={request.gemini_api_key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_key}",
                     timeout=10.0
                 )
                 if response.status_code == 200:
@@ -267,12 +269,13 @@ async def check_custom_judge_models(request: CheckModelsRequest):
         except Exception as e:
             result["gemini"] = [f"Error: {str(e)}"]
     
-    # Check Ollama models
-    if request.ollama_base_url:
+    # Check Ollama models (use custom URL or .env URL)
+    ollama_url = request.ollama_base_url or settings.ollama_base_url
+    if ollama_url:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"{request.ollama_base_url}/api/tags",
+                    f"{ollama_url}/api/tags",
                     timeout=10.0
                 )
                 if response.status_code == 200:

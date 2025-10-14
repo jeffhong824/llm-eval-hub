@@ -701,12 +701,14 @@ async def generate_personas_from_scenario(request: GeneratePersonasRequest):
             model_name=request.model_name
         )
         
+        logger.info(f"Generating {request.num_personas} personas...")
         personas = persona_generator.generate_personas(
             scenario_description=request.scenario_description,
             num_personas=request.num_personas,
             language=request.language
         )
         
+        logger.info(f"Saving {len(personas)} personas to files...")
         # Save personas to stage folder
         save_result = persona_generator.save_personas_to_files(
             personas=personas,
@@ -717,6 +719,8 @@ async def generate_personas_from_scenario(request: GeneratePersonasRequest):
         # Mark stage complete
         output_manager.mark_stage_complete("personas", save_result)
         
+        logger.info(f"Persona generation completed successfully")
+        
         return {
             "success": True,
             "message": f"Successfully generated {len(personas)} personas",
@@ -726,7 +730,8 @@ async def generate_personas_from_scenario(request: GeneratePersonasRequest):
             "excel_file": save_result["excel_file"],
             "json_file": save_result["json_file"],
             "total_personas": len(personas),
-            "personas_preview": personas[:3]  # Show first 3 personas
+            "personas_preview": personas[:3],  # Show first 3 personas
+            "progress": 100
         }
         
     except Exception as e:
