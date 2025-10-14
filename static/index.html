@@ -2623,34 +2623,56 @@
                     scenario_name: workflowState.scenario_name
                 };
                 
-                updateEvalProgress(20, '連接 API...');
+                updateEvalProgress(5, '初始化...');
                 addLog('🚀 開始評估流程...');
                 addLog(`📊 選擇的評估指標: ${metrics.join(', ')}`);
                 addLog('⏰ 注意：RAGAS 評估可能需要較長時間，請耐心等待...', 'info');
                 
-                // Simulate progress during evaluation
-                let currentProgress = 20;
-                const evalProgressInterval = setInterval(() => {
-                    if (currentProgress < 95) {
-                        // Slow down progress as it gets higher
-                        const increment = currentProgress < 50 ? 3 : currentProgress < 70 ? 2 : currentProgress < 85 ? 1 : 0.5;
-                        currentProgress += increment;
-                        updateEvalProgress(Math.min(currentProgress, 95), '評估中...');
-                        
-                        // Add periodic log messages
-                        if (Math.floor(currentProgress) % 10 === 0) {
-                            addLog(`⏳ 評估進度: ${Math.floor(currentProgress)}% (RAGAS 正在評估每個問題...)`);
-                        }
-                    }
-                }, 3000);  // Update every 3 seconds
-                
-                const response = await fetch('/api/v1/evaluation/workflow/run-evaluation', {
+                // Start evaluation (non-blocking)
+                const evaluationPromise = fetch('/api/v1/evaluation/workflow/run-evaluation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
                 });
                 
-                clearInterval(evalProgressInterval);
+                // Poll for progress updates
+                let sessionId = null;
+                let lastProgress = 0;
+                let lastMessage = '';
+                const progressInterval = setInterval(async () => {
+                    try {
+                        // Get progress from backend
+                        const statusResponse = await fetch('/api/v1/evaluation/progress/current');
+                        if (statusResponse.ok) {
+                            const progressData = await statusResponse.json();
+                            
+                            console.log('Progress data:', progressData);
+                            
+                            if (progressData.status !== 'not_found' && progressData.status !== 'idle' && progressData.total > 0) {
+                                // Use actual percentage from backend (don't cap at 95%)
+                                const percentage = Math.min(progressData.percentage, 98);
+                                updateEvalProgress(percentage, progressData.message || '評估中...');
+                                
+                                // Add log for any message change or significant progress
+                                if (progressData.message !== lastMessage) {
+                                    addLog(`${progressData.message} (${percentage.toFixed(1)}%)`);
+                                    lastMessage = progressData.message;
+                                    lastProgress = Math.floor(percentage);
+                                } else if (Math.floor(percentage) >= lastProgress + 10) {
+                                    addLog(`⏳ 進度更新: ${percentage.toFixed(1)}%`);
+                                    lastProgress = Math.floor(percentage);
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.log('Progress poll error:', err);
+                    }
+                }, 1500);  // Poll every 1.5 seconds for more responsive updates
+                
+                // Wait for evaluation to complete
+                const response = await evaluationPromise;
+                
+                clearInterval(progressInterval);
                 updateEvalProgress(90, '處理結果...');
                 
                 const result = await response.json();

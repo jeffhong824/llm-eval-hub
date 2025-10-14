@@ -17,6 +17,15 @@ import asyncio
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Global progress tracker for evaluation
+evaluation_progress = {
+    "current": 0,
+    "total": 0,
+    "status": "idle",
+    "message": "",
+    "session_id": None
+}
+
 
 class APIConfig(BaseModel):
     """Configuration for external LLM API."""
@@ -346,6 +355,40 @@ async def get_evaluation_status():
     }
 
 
+@router.get("/progress/current")
+async def get_current_evaluation_progress():
+    """Get current evaluation progress (latest session)."""
+    return {
+        "current": evaluation_progress["current"],
+        "total": evaluation_progress["total"],
+        "status": evaluation_progress["status"],
+        "message": evaluation_progress["message"],
+        "percentage": round((evaluation_progress["current"] / evaluation_progress["total"] * 100) if evaluation_progress["total"] > 0 else 0, 1),
+        "session_id": evaluation_progress.get("session_id")
+    }
+
+
+@router.get("/progress/{session_id}")
+async def get_evaluation_progress(session_id: str):
+    """Get current evaluation progress for a session."""
+    if evaluation_progress.get("session_id") == session_id:
+        return {
+            "current": evaluation_progress["current"],
+            "total": evaluation_progress["total"],
+            "status": evaluation_progress["status"],
+            "message": evaluation_progress["message"],
+            "percentage": round((evaluation_progress["current"] / evaluation_progress["total"] * 100) if evaluation_progress["total"] > 0 else 0, 1)
+        }
+    else:
+        return {
+            "current": 0,
+            "total": 0,
+            "status": "not_found",
+            "message": "Session not found",
+            "percentage": 0
+        }
+
+
 class WorkflowEvaluationRequest(BaseModel):
     """Request model for workflow evaluation."""
     testset_path: str
@@ -404,7 +447,18 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
         
         start_time = time.time()
         
-        logger.info(f"Starting workflow evaluation")
+        # Generate session ID for progress tracking
+        import uuid
+        session_id = str(uuid.uuid4())
+        
+        # Initialize progress
+        evaluation_progress["session_id"] = session_id
+        evaluation_progress["current"] = 0
+        evaluation_progress["total"] = 0
+        evaluation_progress["status"] = "loading"
+        evaluation_progress["message"] = "載入測試集..."
+        
+        logger.info(f"Starting workflow evaluation (session: {session_id})")
         logger.info(f"Testset path received: {request.testset_path}")
         logger.info(f"Target API URL: {request.target_api_url}")
         logger.info(f"Selected metrics: {request.metrics}")
@@ -417,12 +471,24 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
         df = pd.read_excel(request.testset_path)
         logger.info(f"Loaded {len(df)} test cases from {request.testset_path}")
         
+        # Update progress for API calling phase
+        api_total = len(df)
+        evaluation_progress["status"] = "calling_api"
+        evaluation_progress["message"] = f"📞 調用 API 獲取回應 (0/{api_total})"
+        evaluation_progress["total"] = api_total
+        evaluation_progress["current"] = 0
+        
         # Step 2: Call user's API to get responses
         logger.info(f"Calling user API: {request.target_api_url}")
         
         responses = []
         for idx, row in df.iterrows():
             question = row.get('question', '')
+            
+            # Update progress before each API call
+            evaluation_progress["current"] = idx
+            evaluation_progress["message"] = f"📞 調用 API: 問題 {idx+1}/{api_total}"
+            logger.info(f"Calling API for question {idx+1}/{api_total}: {question[:50]}...")
             
             # Build API request
             headers = {'Content-Type': 'application/json'}
@@ -463,10 +529,12 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                             break
                     
                     responses.append(str(response_text))
-                    logger.info(f"Got response for question {idx+1}/{len(df)}")
+                    logger.info(f"✅ Got response for question {idx+1}/{api_total}")
+                    evaluation_progress["message"] = f"✅ 完成 API 調用: 問題 {idx+1}/{api_total}"
                 else:
-                    logger.error(f"API call failed for question {idx}: {api_response.status_code}")
+                    logger.error(f"❌ API call failed for question {idx}: {api_response.status_code}")
                     responses.append("")
+                    evaluation_progress["message"] = f"❌ API 失敗: 問題 {idx+1}/{api_total}"
                     
             except Exception as e:
                 logger.error(f"Error calling API for question {idx}: {str(e)}")
@@ -597,13 +665,73 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
         
         logger.info(f"Running evaluation with metrics: {request.metrics}")
         
-        # Step 6: Run evaluation (use async version to avoid uvloop conflict)
-        import asyncio
-        result = await aevaluate(
-            dataset=evaluation_dataset,
-            metrics=selected_metrics,
-            llm=evaluator_llm
-        )
+        # Update progress for RAGAS evaluation  
+        num_samples = len(evaluation_data)
+        num_metrics = len(selected_metrics)
+        total_evaluations = num_samples * num_metrics
+        evaluation_progress["status"] = "evaluating"
+        evaluation_progress["message"] = f"🔍 RAGAS 評估: 問題 0/{num_samples}, 指標 0/{num_metrics}"
+        evaluation_progress["total"] = total_evaluations
+        evaluation_progress["current"] = 0
+        
+        logger.info(f"Starting RAGAS evaluation: {num_samples} samples × {num_metrics} metrics = {total_evaluations} total evaluations")
+        
+        # Step 6: Evaluate with progress tracking
+        # We'll evaluate sample by sample to track progress
+        all_results = []
+        for sample_idx, sample in enumerate(evaluation_data):
+            # Create single-sample dataset
+            single_dataset = Dataset.from_list([sample])
+            
+            # Update progress
+            evaluation_progress["message"] = f"🔍 評估問題 {sample_idx + 1}/{num_samples}: {sample.get('question', '')[:30]}..."
+            logger.info(f"Evaluating sample {sample_idx + 1}/{num_samples}")
+            
+            # Evaluate this sample with all metrics
+            try:
+                sample_result = await aevaluate(
+                    dataset=single_dataset,
+                    metrics=selected_metrics,
+                    llm=evaluator_llm
+                )
+                all_results.append(sample_result)
+                
+                # Update progress after each sample
+                evaluation_progress["current"] = (sample_idx + 1) * num_metrics
+                evaluation_progress["message"] = f"✅ 完成問題 {sample_idx + 1}/{num_samples} (所有指標)"
+                logger.info(f"✅ Completed evaluation for sample {sample_idx + 1}/{num_samples}")
+            except Exception as e:
+                logger.error(f"❌ Error evaluating sample {sample_idx + 1}: {e}")
+                evaluation_progress["message"] = f"❌ 評估問題 {sample_idx + 1} 時出錯"
+                # Continue with next sample
+                continue
+        
+        # Combine results from all samples
+        if not all_results:
+            raise ValueError("沒有成功的評估結果")
+        
+        # Merge all sample results into one
+        import pandas as pd
+        combined_results = []
+        for sample_result in all_results:
+            if hasattr(sample_result, 'to_pandas'):
+                combined_results.append(sample_result.to_pandas())
+            else:
+                combined_results.append(sample_result)
+        
+        # Concatenate all results
+        if all(isinstance(r, pd.DataFrame) for r in combined_results):
+            result_dict = pd.concat(combined_results, ignore_index=True)
+        else:
+            # Fallback: use first result
+            result_dict = combined_results[0]
+        
+        logger.info(f"Combined {len(all_results)} sample results")
+        
+        # Mark evaluation complete
+        evaluation_progress["status"] = "processing"
+        evaluation_progress["message"] = "📊 處理評估結果..."
+        evaluation_progress["current"] = total_evaluations
         
         # Step 7: Save results
         output_dir = os.path.join(request.output_folder, request.scenario_name, "04_evaluation")
@@ -618,14 +746,7 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
         # RAGAS 0.3.6 returns a Dataset-like object with scores
         # Convert to pandas DataFrame first
         try:
-            import pandas as pd
-            
             # Debug: Log result type and structure
-            logger.info(f"Result type: {type(result)}")
-            logger.info(f"Result attributes: {[x for x in dir(result) if not x.startswith('_')][:20]}")
-            
-            # Get the scores as a dictionary
-            result_dict = result.to_pandas() if hasattr(result, 'to_pandas') else result
             logger.info(f"Result dict type: {type(result_dict)}")
             
             if isinstance(result_dict, pd.DataFrame):
@@ -736,12 +857,17 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
             else:
                 clean_scores[k] = v
         
+        # Mark as complete
+        evaluation_progress["status"] = "completed"
+        evaluation_progress["message"] = "評估完成！"
+        
         return {
             "success": True,
             "scores": clean_scores,
             "total_tests": len(df),
             "evaluation_time": f"{evaluation_time:.2f}s",
-            "result_file": result_file
+            "result_file": result_file,
+            "session_id": session_id
         }
         
     except Exception as e:
