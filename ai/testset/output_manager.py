@@ -38,9 +38,16 @@ class OutputManager:
         self.base_output_folder = Path(base_output_folder)
         self.scenario_name = scenario_name or f"scenario_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        # Create main scenario folder
-        self.scenario_folder = self.base_output_folder / self.scenario_name
-        self.scenario_folder.mkdir(parents=True, exist_ok=True)
+        # Check if base_output_folder already contains scenario_name to avoid double nesting
+        if self.scenario_name and self.base_output_folder.name == self.scenario_name:
+            # base_output_folder is already the scenario folder
+            self.scenario_folder = self.base_output_folder
+            logger.info(f"Using existing scenario folder: {self.scenario_folder}")
+        else:
+            # Create main scenario folder
+            self.scenario_folder = self.base_output_folder / self.scenario_name
+            self.scenario_folder.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created new scenario folder: {self.scenario_folder}")
         
         # Initialize metadata
         self.metadata = {

@@ -584,7 +584,6 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
             'faithfulness': Faithfulness(),
             'answer_relevancy': AnswerRelevancy(),
             'answer_similarity': AnswerSimilarity(),
-            'semantic_similarity': AnswerSimilarity(),  # Alias
             'context_relevance': ContextRelevance(),
             'response_relevancy': ResponseRelevancy()
         }
@@ -640,7 +639,6 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                 'factual_correctness': 'factual_correctness(mode=f1)',
                 'response_relevancy': 'answer_relevancy',
                 'context_relevance': 'nv_context_relevance',
-                'semantic_similarity': 'semantic_similarity',
                 'answer_correctness': 'answer_correctness',
                 'answer_relevancy': 'answer_relevancy',
                 'answer_similarity': 'answer_similarity',

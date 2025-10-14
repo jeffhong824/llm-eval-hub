@@ -76,13 +76,14 @@ class PersonaGenerator:
             List of detailed persona dictionaries
         """
         logger.info(f"Generating {num_personas} personas for scenario: {scenario_description[:100]}...")
+        logger.info(f"Using model: {self.model_provider}/{self.model_name}")
         
-        prompt = f"""作為一個用戶研究專家，請根據以下使用情境生成{num_personas}個詳細但簡潔的用戶角色檔案(personas)。
+        prompt = f"""作為一個用戶研究專家，請根據以下使用情境生成{num_personas}個通用且簡潔的用戶角色檔案(personas)。
 
 使用情境：
 {scenario_description}
 
-請生成多樣化的用戶角色，每個角色都應該是獨特的、真實的、具體的。
+請生成多樣化的用戶角色，每個角色都應該是獨特的、真實的、具體的，但不要過於複雜。
 
 對於每個角色，請提供以下資訊（保持簡潔但完整）：
 
@@ -92,23 +93,20 @@ class PersonaGenerator:
 2. **生活狀態**：
    - 婚姻狀況、家庭成員、住房狀況、通勤方式
 
-3. **需求與目標**：
-   - 當前痛點（2-3個）、核心需求、短期目標、長期目標、預算範圍
+3. **需求與痛點**：
+   - 當前痛點（2-3個）、核心需求
 
 4. **行為模式**：
-   - 日常作息、科技使用習慣、資訊搜尋習慣、決策風格、溝通偏好
+   - 日常作息、科技使用習慣
 
 5. **心理特徵**：
-   - 個性特點（3-4個）、價值觀、態度、焦慮點、動機
+   - 對該情境的態度
 
 6. **場景特定需求**：
-   - 根據情境的具體需求（如房地產：預算、地點、房型等）
+   - 根據情境的具體需求和偏好（這是最重要的部分）
 
 7. **溝通風格**：
-   - 問問題方式、語言特色、常見疑問類型
-
-8. **使用場景**：
-   - 使用時段、頻率、環境、裝置偏好
+   - 問問題方式、語言特色
 
 請以JSON格式返回，確保每個角色都是完整且獨特的。保持回應簡潔，避免過度詳細的描述。
 
@@ -129,50 +127,27 @@ class PersonaGenerator:
     "life_status": {{
       "marital_status": "婚姻狀況",
       "family_members": "家庭成員詳情",
-      "pets": "寵物詳情（無寵物則說明無）",
       "housing": "住房詳情",
-      "commute": "通勤詳情",
-      "work_location": "工作地點"
+      "commute": "通勤詳情"
     }},
-    "needs_and_goals": {{
+    "needs_and_pain_points": {{
       "pain_points": ["痛點1", "痛點2", "痛點3"],
-      "core_needs": ["需求1（最重要）", "需求2", "需求3"],
-      "short_term_goals": ["短期目標1", "短期目標2", "短期目標3"],
-      "long_term_goals": ["長期目標1", "長期目標2"],
-      "budget_range": "預算範圍",
-      "decision_criteria": ["決策標準1", "決策標準2", "決策標準3"]
+      "core_needs": ["需求1（最重要）", "需求2", "需求3"]
     }},
     "behavior_patterns": {{
       "daily_routine": "日常作息描述",
-      "tech_usage": "科技產品使用習慣",
-      "info_seeking": "資訊搜尋習慣",
-      "decision_style": "決策風格",
-      "social_media": "社交媒體習慣",
-      "communication_preference": "溝通管道偏好"
+      "tech_usage": "科技產品使用習慣"
     }},
     "psychology": {{
-      "personality_traits": ["特點1", "特點2", "特點3", "特點4", "特點5"],
-      "values": ["價值觀1", "價值觀2", "價值觀3"],
-      "attitude": "對該情境的態度",
-      "anxieties": ["擔憂1", "擔憂2"],
-      "motivation": "動機來源",
-      "trust_building": "如何建立信任"
+      "attitude": "對該情境的態度和看法"
     }},
     "scenario_specific": {{
-      // 根據具體情境添加專屬欄位
-      // 例如房地產：preferred_location, budget, square_meters_needed, 等等
+      // 根據具體情境添加專屬欄位和需求
+      // 這是每個角色最重要的部分，要詳細描述
     }},
     "communication_style": {{
       "questioning_approach": "問問題的方式",
-      "language_characteristics": "語言特色",
-      "common_questions_type": "常見疑問類型",
-      "clarity_level": "表達清晰度"
-    }},
-    "usage_context": {{
-      "typical_usage_time": "典型使用時段",
-      "usage_frequency": "使用頻率",
-      "usage_environment": "使用環境",
-      "device_preference": "裝置偏好"
+      "language_characteristics": "語言特色和表達方式"
     }}
   }}
 ]
@@ -213,7 +188,9 @@ class PersonaGenerator:
                 if not persona.get("persona_name"):
                     raise ValueError(f"Persona {i+1} missing persona_name")
             
-            logger.info(f"Successfully generated {len(personas)} personas")
+            logger.info(f"Successfully generated {len(personas)} personas (requested: {num_personas})")
+            if len(personas) != num_personas:
+                logger.warning(f"Generated {len(personas)} personas but requested {num_personas}")
             return personas
             
         except json.JSONDecodeError as e:
@@ -237,7 +214,9 @@ class PersonaGenerator:
                     if not persona.get("persona_name"):
                         raise ValueError(f"Persona {i+1} missing persona_name")
                 
-                logger.info(f"Successfully generated {len(personas)} personas after fixing")
+                logger.info(f"Successfully generated {len(personas)} personas after fixing (requested: {num_personas})")
+                if len(personas) != num_personas:
+                    logger.warning(f"After fixing: Generated {len(personas)} personas but requested {num_personas}")
                 return personas
                 
             except Exception as fix_error:
@@ -245,7 +224,7 @@ class PersonaGenerator:
                 
                 # Last resort: try generating fewer personas
                 if num_personas > 3:
-                    logger.info(f"Retrying with fewer personas ({num_personas//2})...")
+                    logger.warning(f"JSON parsing failed, retrying with fewer personas ({num_personas//2} instead of {num_personas})...")
                     return self.generate_personas(scenario_description, num_personas//2, language)
                 else:
                     logger.error("Even with minimal personas, generation failed")

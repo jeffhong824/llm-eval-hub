@@ -404,8 +404,8 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="num-personas">角色數量</label>
-                            <input type="number" id="num-personas" min="1" max="20" value="5">
-                            <small>建議生成 5-10 個核心角色。</small>
+                            <input type="number" id="num-personas" min="3" max="5" value="3">
+                            <small>建議生成 3-5 個角色以獲得更好的多樣性</small>
                         </div>
                         
                         <div class="form-group">
@@ -418,7 +418,7 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="persona-model-provider">LLM 提供商</label>
-                            <select id="persona-model-provider">
+                            <select id="persona-model-provider" onchange="onPersonaProviderChange()">
                                 <option value="openai">OpenAI</option>
                                 <option value="gemini">Google Gemini</option>
                                 <option value="ollama">Ollama (本地)</option>
@@ -427,8 +427,10 @@
                         
                         <div class="form-group">
                             <label for="persona-model-name">模型名稱</label>
-                            <input type="text" id="persona-model-name" value="gpt-4">
-                            <small>建議使用 GPT-4 以獲得更高質量的內容。</small>
+                            <select id="persona-model-name">
+                                <option value="gpt-4">gpt-4</option>
+                            </select>
+                            <small id="persona-model-hint">建議使用 GPT-4 以獲得更高質量的內容。</small>
                         </div>
                     </div>
                     
@@ -749,13 +751,6 @@
                             <small style="margin-left: 30px;">評估檢索到的上下文是否相關。</small>
                         </div>
                         
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-semantic-similarity" style="margin-right: 10px;">
-                                <strong>Semantic Similarity (語義相似度)</strong>
-                            </label>
-                            <small style="margin-left: 30px;">評估答案與參考答案的語義相似程度。</small>
-                        </div>
                     </div>
                     
                     <div class="button-group" style="margin-top: 30px;">
@@ -1196,6 +1191,9 @@
                                     📁 選擇資料夾
                                 </button>
                             </div>
+                            <div id="rag-folder-info" class="alert alert-info" style="display: none; margin-top: 10px;">
+                                <!-- 文件夾選擇信息將顯示在這裡 -->
+                            </div>
                             <small>輸入包含文字檔案的資料夾路徑（Mac 路徑會自動轉換），或點擊按鈕選擇本地資料夾。系統會讀取所有 .txt, .md, .pdf 等文件。</small>
                         </div>
                         
@@ -1219,7 +1217,7 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="rag-model-provider">LLM 提供商</label>
-                                <select id="rag-model-provider">
+                                <select id="rag-model-provider" onchange="onRAGProviderChange()">
                                     <option value="openai">OpenAI</option>
                                     <option value="gemini">Google Gemini</option>
                                     <option value="ollama">Ollama (本地)</option>
@@ -1228,7 +1226,10 @@
                             
                             <div class="form-group">
                                 <label for="rag-model-name">模型名稱</label>
-                                <input type="text" id="rag-model-name" value="gpt-3.5-turbo">
+                                <select id="rag-model-name">
+                                    <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                                </select>
+                                <small id="rag-model-hint">建議使用 GPT-3.5-turbo 或 GPT-4。</small>
                             </div>
                         </div>
                         
@@ -1386,11 +1387,33 @@
         // Handle RAG folder selection
         function handleRAGFolderSelect(event) {
             const files = event.target.files;
+            const infoDiv = document.getElementById('rag-folder-info');
+            
             if (files.length > 0) {
                 // Get the folder path from the first file
                 const firstFile = files[0];
                 const folderPath = firstFile.webkitRelativePath.split('/')[0];
-                alert(`已選擇資料夾：${folderPath}\n包含 ${files.length} 個檔案\n\n由於 Docker 容器限制，請直接貼上完整的 Mac 本地路徑，系統會自動轉換為容器路徑。`);
+                
+                // Count different file types
+                const fileTypes = {};
+                Array.from(files).forEach(file => {
+                    const ext = file.name.split('.').pop().toLowerCase();
+                    fileTypes[ext] = (fileTypes[ext] || 0) + 1;
+                });
+                
+                const fileTypeInfo = Object.entries(fileTypes)
+                    .map(([ext, count]) => `${ext}: ${count}`)
+                    .join(', ');
+                
+                infoDiv.innerHTML = `
+                    <strong>📁 已選擇資料夾: ${folderPath}</strong><br>
+                    <strong>📄 包含 ${files.length} 個檔案</strong><br>
+                    <strong>📋 檔案類型: ${fileTypeInfo}</strong><br>
+                    <small>由於 Docker 容器限制，請直接貼上完整的 Mac 本地路徑，系統會自動轉換為容器路徑。</small>
+                `;
+                infoDiv.style.display = 'block';
+            } else {
+                infoDiv.style.display = 'none';
             }
         }
         
@@ -1986,6 +2009,132 @@
             document.getElementById('rag-existing-testset-info').style.display = 'none';
         }
         
+        // Handle RAG provider change - auto-detect models
+        async function onRAGProviderChange() {
+            await autoDetectRAGModels();
+        }
+        
+        // Auto-detect available models for RAG testset generation
+        async function autoDetectRAGModels() {
+            const provider = document.getElementById('rag-model-provider').value;
+            const modelSelect = document.getElementById('rag-model-name');
+            const hintElement = document.getElementById('rag-model-hint');
+            
+            // Show loading state
+            modelSelect.innerHTML = '<option value="">🔍 正在檢測可用模型...</option>';
+            modelSelect.disabled = true;
+            
+            try {
+                const response = await fetch('/api/v1/evaluation/judge-models/check-custom', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        openai_api_key: null,
+                        gemini_api_key: null,
+                        ollama_base_url: null
+                    })
+                });
+                
+                const result = await response.json();
+                
+                // Clear and populate model options
+                modelSelect.innerHTML = '';
+                
+                if (result[provider] && result[provider].length > 0) {
+                    result[provider].forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        modelSelect.appendChild(option);
+                    });
+                    
+                    // Set default selection
+                    if (provider === 'openai') {
+                        modelSelect.value = 'gpt-3.5-turbo';
+                    } else if (provider === 'gemini') {
+                        modelSelect.value = result[provider][0];
+                    } else if (provider === 'ollama') {
+                        modelSelect.value = result[provider][0];
+                    }
+                    
+                    hintElement.textContent = `已檢測到 ${result[provider].length} 個可用模型`;
+                } else {
+                    modelSelect.innerHTML = '<option value="">❌ 未找到可用模型</option>';
+                    hintElement.textContent = '未找到可用模型，請檢查API配置';
+                }
+                
+            } catch (error) {
+                console.error('Error detecting RAG models:', error);
+                modelSelect.innerHTML = '<option value="">❌ 檢測失敗</option>';
+                hintElement.textContent = '模型檢測失敗，請手動輸入模型名稱';
+            } finally {
+                modelSelect.disabled = false;
+            }
+        }
+        
+        // Handle persona provider change - auto-detect models
+        async function onPersonaProviderChange() {
+            await autoDetectPersonaModels();
+        }
+        
+        // Auto-detect available models for persona generation
+        async function autoDetectPersonaModels() {
+            const provider = document.getElementById('persona-model-provider').value;
+            const modelSelect = document.getElementById('persona-model-name');
+            const hintElement = document.getElementById('persona-model-hint');
+            
+            // Show loading state
+            modelSelect.innerHTML = '<option value="">🔍 正在檢測可用模型...</option>';
+            modelSelect.disabled = true;
+            
+            try {
+                const response = await fetch('/api/v1/evaluation/judge-models/check-custom', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        openai_api_key: null,
+                        gemini_api_key: null,
+                        ollama_base_url: null
+                    })
+                });
+                
+                const result = await response.json();
+                
+                // Clear and populate model options
+                modelSelect.innerHTML = '';
+                
+                if (result[provider] && result[provider].length > 0) {
+                    result[provider].forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        modelSelect.appendChild(option);
+                    });
+                    
+                    // Set default selection
+                    if (provider === 'openai') {
+                        modelSelect.value = 'gpt-4';
+                    } else if (provider === 'gemini') {
+                        modelSelect.value = result[provider][0];
+                    } else if (provider === 'ollama') {
+                        modelSelect.value = result[provider][0];
+                    }
+                    
+                    hintElement.textContent = `已檢測到 ${result[provider].length} 個可用模型`;
+                } else {
+                    modelSelect.innerHTML = '<option value="">❌ 未找到可用模型</option>';
+                    hintElement.textContent = '未找到可用模型，請檢查API配置';
+                }
+                
+            } catch (error) {
+                console.error('Error detecting models:', error);
+                modelSelect.innerHTML = '<option value="">❌ 檢測失敗</option>';
+                hintElement.textContent = '模型檢測失敗，請手動輸入模型名稱';
+            } finally {
+                modelSelect.disabled = false;
+            }
+        }
+        
         // Handle provider change - toggle API key fields and auto-detect models
         async function onJudgeProviderChange() {
             const provider = document.getElementById('judge-model-provider').value;
@@ -2156,7 +2305,6 @@
                 if (document.getElementById('metric-answer-relevancy').checked) metrics.push('answer_relevancy');
                 if (document.getElementById('metric-response-relevancy').checked) metrics.push('response_relevancy');
                 if (document.getElementById('metric-context-relevance').checked) metrics.push('context_relevance');
-                if (document.getElementById('metric-semantic-similarity').checked) metrics.push('semantic_similarity');
                 
                 if (metrics.length === 0) {
                     throw new Error('請至少選擇一個評估指標');
@@ -2374,6 +2522,8 @@
             // Auto-detect models for default provider (OpenAI) using .env keys
             setTimeout(() => {
                 autoDetectJudgeModels(true);  // true = use .env keys
+                autoDetectPersonaModels();     // Auto-detect persona models
+                autoDetectRAGModels();          // Auto-detect RAG models
             }, 500);
         });
     </script>
