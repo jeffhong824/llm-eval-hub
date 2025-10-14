@@ -235,13 +235,15 @@ async def check_custom_judge_models(request: CheckModelsRequest):
                 )
                 if response.status_code == 200:
                     data = response.json()
-                    # Filter for GPT models suitable for evaluation
+                    # Filter for GPT models suitable for evaluation (chat models only)
+                    non_chat_keywords = ['davinci', 'curie', 'babbage', 'ada', 'instruct', 'embedding', 'whisper', 'dall-e', 'tts']
                     gpt_models = [
                         model["id"] for model in data.get("data", [])
                         if "gpt" in model["id"].lower() and 
-                        any(x in model["id"] for x in ["gpt-4", "gpt-3.5"])
+                        any(x in model["id"] for x in ["gpt-4", "gpt-3.5"]) and
+                        not any(non_chat in model["id"].lower() for non_chat in non_chat_keywords)
                     ]
-                    result["openai"] = sorted(gpt_models, reverse=True)[:10]  # Top 10
+                    result["openai"] = sorted(gpt_models, reverse=True)[:15]  # Top 15 chat models
                 else:
                     result["openai"] = [f"Error: {response.status_code}"]
         except Exception as e:
@@ -473,7 +475,7 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
         # Add responses to dataframe
         df['response'] = responses
         
-        # Step 3: Initialize Judge LLM (use custom API keys if provided)
+        # Step 3: Validate and Initialize Judge LLM (use custom API keys if provided)
         logger.info(f"Initializing Judge LLM: {request.judge_model_provider}/{request.judge_model_name}")
         
         if request.judge_model_provider == "openai":
@@ -482,8 +484,22 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
             if not api_key:
                 raise ValueError("OpenAI API key is required. Please provide it in the form or set OPENAI_API_KEY in .env")
             
+            # Validate model supports chat completions
+            model_name = request.judge_model_name
+            non_chat_models = ['text-davinci-003', 'text-davinci-002', 'davinci', 'curie', 'babbage', 'ada']
+            if any(non_chat in model_name.lower() for non_chat in non_chat_models):
+                raise ValueError(
+                    f"模型 '{model_name}' 不支援聊天模式。\n\n"
+                    f"請選擇以下支援聊天的模型：\n"
+                    f"• gpt-4-turbo\n"
+                    f"• gpt-4-0613\n"
+                    f"• gpt-4\n"
+                    f"• gpt-3.5-turbo\n"
+                    f"• gpt-3.5-turbo-16k"
+                )
+            
             chat_llm = ChatOpenAI(
-                model_name=request.judge_model_name,
+                model_name=model_name,
                 temperature=0,
                 openai_api_key=api_key
             )
@@ -583,8 +599,18 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
         # Convert to pandas DataFrame first
         try:
             import pandas as pd
+            
+            # Debug: Log result type and structure
+            logger.info(f"Result type: {type(result)}")
+            logger.info(f"Result attributes: {[x for x in dir(result) if not x.startswith('_')][:20]}")
+            
             # Get the scores as a dictionary
             result_dict = result.to_pandas() if hasattr(result, 'to_pandas') else result
+            logger.info(f"Result dict type: {type(result_dict)}")
+            
+            if isinstance(result_dict, pd.DataFrame):
+                logger.info(f"Result DataFrame columns: {result_dict.columns.tolist()}")
+                logger.info(f"Result DataFrame shape: {result_dict.shape}")
             
             # Add metric columns to results
             for metric_name in request.metrics:
@@ -592,15 +618,23 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                     # Try different ways to access the metric values
                     if isinstance(result_dict, pd.DataFrame) and metric_name in result_dict.columns:
                         results_df[metric_name] = result_dict[metric_name]
+                        logger.info(f"Added {metric_name} from DataFrame column")
                     elif hasattr(result, metric_name):
                         results_df[metric_name] = getattr(result, metric_name)
+                        logger.info(f"Added {metric_name} from result attribute")
                     elif hasattr(result, '_scores_dict') and metric_name in result._scores_dict:
                         results_df[metric_name] = result._scores_dict[metric_name]
+                        logger.info(f"Added {metric_name} from _scores_dict")
+                    else:
+                        logger.warning(f"Metric {metric_name} not found in result")
+                        results_df[metric_name] = None
                 except Exception as e:
                     logger.warning(f"Could not add metric {metric_name} to results: {e}")
                     results_df[metric_name] = None
         except Exception as e:
             logger.error(f"Error processing results: {e}")
+            import traceback
+            traceback.print_exc()
         
         results_df.to_excel(result_file, index=False)
         
@@ -626,7 +660,17 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                     else:
                         metric_value = float(val)
                 
-                scores[metric_name] = float(metric_value) if metric_value is not None else 0.0
+                # Convert to float and handle NaN/Inf
+                if metric_value is not None:
+                    import math
+                    float_val = float(metric_value)
+                    # Replace NaN and Inf with 0.0
+                    if math.isnan(float_val) or math.isinf(float_val):
+                        scores[metric_name] = 0.0
+                    else:
+                        scores[metric_name] = float_val
+                else:
+                    scores[metric_name] = 0.0
             except Exception as e:
                 logger.warning(f"Could not calculate score for {metric_name}: {e}")
                 scores[metric_name] = 0.0
@@ -637,9 +681,18 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
         logger.info(f"Results saved to {result_file}")
         logger.info(f"Scores: {scores}")
         
+        # Ensure all scores are JSON-compliant
+        import math
+        clean_scores = {}
+        for k, v in scores.items():
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                clean_scores[k] = 0.0
+            else:
+                clean_scores[k] = v
+        
         return {
             "success": True,
-            "scores": scores,
+            "scores": clean_scores,
             "total_tests": len(df),
             "evaluation_time": f"{evaluation_time:.2f}s",
             "result_file": result_file

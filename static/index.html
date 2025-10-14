@@ -771,6 +771,15 @@
                 <div id="evaluation-result" class="result-box" style="display: none;"></div>
                 <div id="evaluation-progress" class="result-box" style="display: none;">
                     <h3>評估進度</h3>
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <strong>評估進度</strong>
+                            <span id="eval-progress-percent">0%</span>
+                        </div>
+                        <div style="width: 100%; height: 30px; background: #e0e0e0; border-radius: 15px; overflow: hidden; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                            <div id="eval-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #4caf50, #8bc34a); transition: width 0.5s; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px;"></div>
+                        </div>
+                    </div>
                     <div id="progress-log" style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 14px;">
                         <!-- 進度日誌將顯示在這裡 -->
                     </div>
@@ -2121,7 +2130,19 @@
                 progressLog.scrollTop = progressLog.scrollHeight;
             }
             
+            // Progress update helper
+            function updateEvalProgress(percent, text = '') {
+                const bar = document.getElementById('eval-progress-bar');
+                const percentText = document.getElementById('eval-progress-percent');
+                if (bar && percentText) {
+                    bar.style.width = percent + '%';
+                    bar.textContent = text || (percent + '%');
+                    percentText.textContent = percent + '%';
+                }
+            }
+            
             try {
+                updateEvalProgress(5, '初始化...');
                 // Collect selected metrics
                 const metrics = [];
                 // Core metrics
@@ -2140,6 +2161,8 @@
                 if (metrics.length === 0) {
                     throw new Error('請至少選擇一個評估指標');
                 }
+                
+                updateEvalProgress(10, '準備中...');
                 
                 // Determine testset path
                 let testsetPath;
@@ -2164,6 +2187,7 @@
                 console.log('Using testset:', testsetPath);
                 console.log('Workflow state:', workflowState);
                 
+                updateEvalProgress(15, '載入測試集...');
                 addLog('📋 正在載入測試集...');
                 addLog(`📄 測試集路徑: ${testsetPath}`);
                 
@@ -2186,8 +2210,18 @@
                     scenario_name: workflowState.scenario_name
                 };
                 
+                updateEvalProgress(20, '連接 API...');
                 addLog('🚀 開始評估流程...');
                 addLog(`📊 選擇的評估指標: ${metrics.join(', ')}`);
+                
+                // Simulate progress during evaluation
+                let currentProgress = 20;
+                const evalProgressInterval = setInterval(() => {
+                    if (currentProgress < 85) {
+                        currentProgress += 3;
+                        updateEvalProgress(currentProgress, '評估中...');
+                    }
+                }, 3000);  // Update every 3 seconds
                 
                 const response = await fetch('/api/v1/evaluation/workflow/run-evaluation', {
                     method: 'POST',
@@ -2195,9 +2229,13 @@
                     body: JSON.stringify(formData)
                 });
                 
+                clearInterval(evalProgressInterval);
+                updateEvalProgress(90, '處理結果...');
+                
                 const result = await response.json();
                 
                 if (result.success) {
+                    updateEvalProgress(100, '✅ 完成');
                     addLog('✅ 評估完成！', 'success');
                     
                     // Show result
