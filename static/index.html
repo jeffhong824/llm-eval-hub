@@ -685,87 +685,136 @@
                     </div>
                     
                     <!-- 評估指標選擇 -->
-                    <h3 style="margin-top: 30px; margin-bottom: 15px;">評估指標（RAGAS）</h3>
+                    <h3 style="margin-top: 30px; margin-bottom: 20px;">📊 評估指標</h3>
                     
-                    <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                        <h4 style="margin-bottom: 10px; color: #667eea;">📊 核心指標（推薦）</h4>
+                    <!-- 核心指標 -->
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
+                        <h4 style="margin: 0 0 15px 0; font-size: 18px;">🎯 核心指標（推薦）</h4>
                         
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-answer-accuracy" checked style="margin-right: 10px;">
-                                <strong>Answer Accuracy (答案準確率) - Nvidia</strong>
+                        <div class="metric-item" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 12px; backdrop-filter: blur(10px);">
+                            <label style="display: flex; align-items: center; cursor: pointer; margin: 0;">
+                                <input type="checkbox" id="metric-answer-accuracy" checked style="margin-right: 12px; transform: scale(1.2);">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Answer Accuracy</div>
+                                    <div style="font-size: 14px; opacity: 0.9;">評估答案的準確性</div>
+                                </div>
+                                <button type="button" onclick="toggleMetricDetails('answer-accuracy')" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">詳情</button>
                             </label>
-                            <small style="margin-left: 30px;">是否能正確回答問題，評估答案的準確性。</small>
+                            <div id="answer-accuracy-details" class="metric-details" style="display: none; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 6px; font-size: 13px;">
+                                <div><strong>詳細說明：</strong>檢查模型是否能正確回答問題，基於標準答案進行比較。</div>
+                                <div style="margin-top: 8px;"><strong>分數低時可調整：</strong>System Prompt、LLM Temperature、模型選擇</div>
+                            </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-factual-correctness" checked style="margin-right: 10px;">
-                                <strong>Factual Correctness (事實正確性)</strong>
+                        <div class="metric-item" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 12px; backdrop-filter: blur(10px);">
+                            <label style="display: flex; align-items: center; cursor: pointer; margin: 0;">
+                                <input type="checkbox" id="metric-factual-correctness" checked style="margin-right: 12px; transform: scale(1.2);">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Factual Correctness</div>
+                                    <div style="font-size: 14px; opacity: 0.9;">檢查回應是否與文件一致</div>
+                                </div>
+                                <button type="button" onclick="toggleMetricDetails('factual-correctness')" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">詳情</button>
                             </label>
-                            <small style="margin-left: 30px;">生成回應是否與文件一致、無臆造資訊。</small>
+                            <div id="factual-correctness-details" class="metric-details" style="display: none; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 6px; font-size: 13px;">
+                                <div><strong>詳細說明：</strong>評估生成的回應是否與提供的文件內容一致，無臆造資訊。</div>
+                                <div style="margin-top: 8px;"><strong>分數低時可調整：</strong>System Prompt、文件品質、檢索策略</div>
+                            </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-context-precision" checked style="margin-right: 10px;">
-                                <strong>Context Precision (精確率)</strong>
+                        <div class="metric-item" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 12px; backdrop-filter: blur(10px);">
+                            <label style="display: flex; align-items: center; cursor: pointer; margin: 0;">
+                                <input type="checkbox" id="metric-context-precision" checked style="margin-right: 12px; transform: scale(1.2);">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Context Precision</div>
+                                    <div style="font-size: 14px; opacity: 0.9;">檢索資訊的精確度</div>
+                                </div>
+                                <button type="button" onclick="toggleMetricDetails('context-precision')" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">詳情</button>
                             </label>
-                            <small style="margin-left: 30px;">回應中正確資訊所佔比例，評估檢索的精確度。</small>
+                            <div id="context-precision-details" class="metric-details" style="display: none; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 6px; font-size: 13px;">
+                                <div><strong>詳細說明：</strong>評估檢索到的資訊中有多少比例是相關且正確的。</div>
+                                <div style="margin-top: 8px;"><strong>分數低時可調整：</strong>Chunk Size、Overlap、檢索算法、Embedding模型</div>
+                            </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-context-recall" checked style="margin-right: 10px;">
-                                <strong>Context Recall (召回率)</strong>
+                        <div class="metric-item" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 12px; backdrop-filter: blur(10px);">
+                            <label style="display: flex; align-items: center; cursor: pointer; margin: 0;">
+                                <input type="checkbox" id="metric-context-recall" checked style="margin-right: 12px; transform: scale(1.2);">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Context Recall</div>
+                                    <div style="font-size: 14px; opacity: 0.9;">檢索資訊的完整性</div>
+                                </div>
+                                <button type="button" onclick="toggleMetricDetails('context-recall')" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">詳情</button>
                             </label>
-                            <small style="margin-left: 30px;">標準答案中的資訊有多少被正確涵蓋。</small>
+                            <div id="context-recall-details" class="metric-details" style="display: none; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 6px; font-size: 13px;">
+                                <div><strong>詳細說明：</strong>評估標準答案中的資訊有多少被正確檢索和涵蓋。</div>
+                                <div style="margin-top: 8px;"><strong>分數低時可調整：</strong>Chunk Size、Overlap、檢索數量、文件相似度門檻</div>
+                            </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-answer-correctness" checked style="margin-right: 10px;">
-                                <strong>Answer Correctness (綜合正確性 - 含 F1)</strong>
+                        <div class="metric-item" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 0; backdrop-filter: blur(10px);">
+                            <label style="display: flex; align-items: center; cursor: pointer; margin: 0;">
+                                <input type="checkbox" id="metric-answer-correctness" checked style="margin-right: 12px; transform: scale(1.2);">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Answer Correctness</div>
+                                    <div style="font-size: 14px; opacity: 0.9;">綜合正確性（含F1分數）</div>
+                                </div>
+                                <button type="button" onclick="toggleMetricDetails('answer-correctness')" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">詳情</button>
                             </label>
-                            <small style="margin-left: 30px;">Precision 與 Recall 的綜合平衡指標（F1 分數）。</small>
+                            <div id="answer-correctness-details" class="metric-details" style="display: none; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 6px; font-size: 13px;">
+                                <div><strong>詳細說明：</strong>Precision與Recall的綜合平衡指標，提供F1分數。</div>
+                                <div style="margin-top: 8px;"><strong>分數低時可調整：</strong>整體系統優化、模型微調、檢索策略調整</div>
+                            </div>
                         </div>
                     </div>
                     
-                    <div style="background: #fff3e0; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-                        <h4 style="margin-bottom: 10px; color: #f57c00;">🔍 進階指標</h4>
+                    <!-- 進階指標 -->
+                    <div style="background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); color: #333; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(255, 154, 158, 0.3);">
+                        <h4 style="margin: 0 0 15px 0; font-size: 18px;">🔍 進階指標</h4>
                         
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-faithfulness" style="margin-right: 10px;">
-                                <strong>Faithfulness (忠實度)</strong>
+                        <div class="metric-item" style="background: rgba(255,255,255,0.3); padding: 15px; border-radius: 8px; margin-bottom: 12px; backdrop-filter: blur(10px);">
+                            <label style="display: flex; align-items: center; cursor: pointer; margin: 0;">
+                                <input type="checkbox" id="metric-faithfulness" style="margin-right: 12px; transform: scale(1.2);">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Faithfulness</div>
+                                    <div style="font-size: 14px; opacity: 0.8;">回應的忠實度</div>
+                        </div>
+                                <button type="button" onclick="toggleMetricDetails('faithfulness')" style="background: rgba(255,255,255,0.4); border: none; color: #333; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">詳情</button>
                             </label>
-                            <small style="margin-left: 30px;">評估答案是否基於提供的上下文，沒有幻覺。</small>
+                            <div id="faithfulness-details" class="metric-details" style="display: none; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.3); border-radius: 6px; font-size: 13px;">
+                                <div><strong>詳細說明：</strong>評估回應是否忠實於檢索到的文件內容，避免幻覺。</div>
+                                <div style="margin-top: 8px;"><strong>分數低時可調整：</strong>System Prompt、模型選擇、檢索品質</div>
+                        </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-answer-relevancy" style="margin-right: 10px;">
-                                <strong>Answer Relevancy (答案相關性)</strong>
+                        <div class="metric-item" style="background: rgba(255,255,255,0.3); padding: 15px; border-radius: 8px; margin-bottom: 12px; backdrop-filter: blur(10px);">
+                            <label style="display: flex; align-items: center; cursor: pointer; margin: 0;">
+                                <input type="checkbox" id="metric-answer-relevancy" style="margin-right: 12px; transform: scale(1.2);">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Answer Relevancy</div>
+                                    <div style="font-size: 14px; opacity: 0.8;">回應的相關性</div>
+                                </div>
+                                <button type="button" onclick="toggleMetricDetails('answer-relevancy')" style="background: rgba(255,255,255,0.4); border: none; color: #333; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">詳情</button>
                             </label>
-                            <small style="margin-left: 30px;">評估答案與問題的相關性。</small>
+                            <div id="answer-relevancy-details" class="metric-details" style="display: none; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.3); border-radius: 6px; font-size: 13px;">
+                                <div><strong>詳細說明：</strong>評估回應是否與問題相關，是否回答了用戶的問題。</div>
+                                <div style="margin-top: 8px;"><strong>分數低時可調整：</strong>System Prompt、問題理解、回應生成策略</div>
+                            </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-response-relevancy" style="margin-right: 10px;">
-                                <strong>Response Relevancy (回應相關性)</strong>
+                        <div class="metric-item" style="background: rgba(255,255,255,0.3); padding: 15px; border-radius: 8px; margin-bottom: 0; backdrop-filter: blur(10px);">
+                            <label style="display: flex; align-items: center; cursor: pointer; margin: 0;">
+                                <input type="checkbox" id="metric-response-relevancy" style="margin-right: 12px; transform: scale(1.2);">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">Response Relevancy</div>
+                                    <div style="font-size: 14px; opacity: 0.8;">回應的整體相關性</div>
+                                </div>
+                                <button type="button" onclick="toggleMetricDetails('response-relevancy')" style="background: rgba(255,255,255,0.4); border: none; color: #333; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer;">詳情</button>
                             </label>
-                            <small style="margin-left: 30px;">評估回應與查詢的相關性。</small>
+                            <div id="response-relevancy-details" class="metric-details" style="display: none; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.3); border-radius: 6px; font-size: 13px;">
+                                <div><strong>詳細說明：</strong>評估回應的整體相關性和有用性。</div>
+                                <div style="margin-top: 8px;"><strong>分數低時可調整：</strong>模型選擇、Prompt工程、回應長度控制</div>
+                            </div>
                         </div>
-                        
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <input type="checkbox" id="metric-context-relevance" style="margin-right: 10px;">
-                                <strong>Context Relevance (上下文相關性) - Nvidia</strong>
-                            </label>
-                            <small style="margin-left: 30px;">評估檢索到的上下文是否相關。</small>
-                        </div>
-                        
                     </div>
                     
                     <div class="button-group" style="margin-top: 30px;">
@@ -1852,7 +1901,7 @@
             function addDocLog(message, type = 'info') {
                 const log = document.getElementById('doc-progress-log');
                 if (log) {
-                    const color = type === 'error' ? '#d32f2f' : type === 'success' ? '#388e3c' : '#1976d2';
+                const color = type === 'error' ? '#d32f2f' : type === 'success' ? '#388e3c' : '#1976d2';
                     log.innerHTML += `<div style="color: ${color}; margin-bottom: 5px;">[${new Date().toLocaleTimeString('zh-TW')}] ${message}</div>`;
                     log.scrollTop = log.scrollHeight;
                 }
@@ -2125,6 +2174,150 @@
             }
         }
         
+        // Generate comprehensive performance report
+        function generatePerformanceReport(scores, totalTests, testsetPath) {
+            const metricsChart = generateMetricsChart(scores);
+            const analysis = generatePerformanceAnalysis(scores);
+            const improvements = generateImprovementSuggestions(scores);
+            
+            return {
+                metricsChart,
+                analysis,
+                improvements
+            };
+        }
+        
+        // Generate metrics chart
+        function generateMetricsChart(scores) {
+            let chart = '<div style="display: grid; gap: 15px;">';
+            
+            for (const [metric, score] of Object.entries(scores)) {
+                const percentage = (score * 100).toFixed(2);
+                const barWidth = Math.min(percentage, 100);
+                const color = score >= 0.8 ? '#4caf50' : score >= 0.6 ? '#ff9800' : '#f44336';
+                
+                const metricName = getMetricDisplayName(metric);
+                
+                chart += `
+                    <div style="padding: 15px; border: 1px solid #e0e0e0; border-radius: 8px; background: white;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <strong>${metricName}</strong>
+                            <span style="font-size: 18px; font-weight: bold; color: ${color};">${percentage}%</span>
+                        </div>
+                        <div style="height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden;">
+                            <div style="width: ${barWidth}%; height: 100%; background: ${color}; transition: width 0.3s;"></div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            chart += '</div>';
+            return chart;
+        }
+        
+        // Get display name for metrics
+        function getMetricDisplayName(metric) {
+            const names = {
+                'answer_accuracy': 'Answer Accuracy',
+                'factual_correctness': 'Factual Correctness',
+                'context_precision': 'Context Precision',
+                'context_recall': 'Context Recall',
+                'answer_correctness': 'Answer Correctness',
+                'faithfulness': 'Faithfulness',
+                'answer_relevancy': 'Answer Relevancy',
+                'response_relevancy': 'Response Relevancy',
+                'f1_score': 'F1 Score (綜合指標)'
+            };
+            return names[metric] || metric;
+        }
+        
+        // Generate performance analysis
+        function generatePerformanceAnalysis(scores) {
+            const avgScore = Object.values(scores).reduce((a, b) => a + b, 0) / Object.keys(scores).length;
+            const lowMetrics = Object.entries(scores).filter(([_, score]) => score < 0.6);
+            const highMetrics = Object.entries(scores).filter(([_, score]) => score >= 0.8);
+            
+            let analysis = `
+                <div style="margin-bottom: 15px;">
+                    <strong>整體表現：</strong>${(avgScore * 100).toFixed(1)}% 
+                    <span style="color: ${avgScore >= 0.8 ? '#4caf50' : avgScore >= 0.6 ? '#ff9800' : '#f44336'};">
+                        ${avgScore >= 0.8 ? '優秀' : avgScore >= 0.6 ? '良好' : '需要改進'}
+                    </span>
+                </div>
+            `;
+            
+            if (highMetrics.length > 0) {
+                analysis += `
+                    <div style="margin-bottom: 10px;">
+                        <strong>✅ 表現優秀的指標：</strong>
+                        ${highMetrics.map(([metric, _]) => getMetricDisplayName(metric)).join(', ')}
+                    </div>
+                `;
+            }
+            
+            if (lowMetrics.length > 0) {
+                analysis += `
+                    <div style="margin-bottom: 10px;">
+                        <strong>⚠️ 需要關注的指標：</strong>
+                        ${lowMetrics.map(([metric, score]) => `${getMetricDisplayName(metric)} (${(score * 100).toFixed(1)}%)`).join(', ')}
+                    </div>
+                `;
+            }
+            
+            return analysis;
+        }
+        
+        // Generate improvement suggestions
+        function generateImprovementSuggestions(scores) {
+            let suggestions = '<ul style="margin: 0; padding-left: 20px;">';
+            
+            if (scores.context_precision < 0.7) {
+                suggestions += '<li>調整 <strong>Chunk Size</strong> 和 <strong>Overlap</strong> 參數以提高檢索精確度</li>';
+            }
+            
+            if (scores.context_recall < 0.7) {
+                suggestions += '<li>增加檢索數量或優化 <strong>文件相似度門檻</strong> 以提高召回率</li>';
+            }
+            
+            if (scores.factual_correctness < 0.7) {
+                suggestions += '<li>優化 <strong>System Prompt</strong> 以提高事實正確性</li>';
+            }
+            
+            if (scores.answer_accuracy < 0.7) {
+                suggestions += '<li>調整 <strong>LLM Temperature</strong> 或更換更適合的模型</li>';
+            }
+            
+            if (scores.faithfulness < 0.7) {
+                suggestions += '<li>改善 <strong>檢索品質</strong> 和 <strong>模型選擇</strong> 以減少幻覺</li>';
+            }
+            
+            suggestions += '<li>定期更新 <strong>測試集</strong> 以確保評估的持續有效性</li>';
+            suggestions += '<li>考慮使用 <strong>模型微調</strong> 來針對特定領域優化</li>';
+            
+            suggestions += '</ul>';
+            return suggestions;
+        }
+        
+        // Download performance report
+        function downloadPerformanceReport() {
+            // This would generate a comprehensive PDF report
+            alert('效能報告下載功能將在後續版本中實現');
+        }
+        
+        // Toggle metric details
+        function toggleMetricDetails(metricId) {
+            const detailsDiv = document.getElementById(metricId + '-details');
+            const button = event.target;
+            
+            if (detailsDiv.style.display === 'none') {
+                detailsDiv.style.display = 'block';
+                button.textContent = '收起';
+            } else {
+                detailsDiv.style.display = 'none';
+                button.textContent = '詳情';
+            }
+        }
+        
         // Handle persona provider change - auto-detect models
         async function onPersonaProviderChange() {
             const provider = document.getElementById('persona-model-provider').value;
@@ -2368,16 +2561,15 @@
                 // Collect selected metrics
                 const metrics = [];
                 // Core metrics
-                if (document.getElementById('metric-answer-accuracy').checked) metrics.push('answer_accuracy');
-                if (document.getElementById('metric-factual-correctness').checked) metrics.push('factual_correctness');
-                if (document.getElementById('metric-context-precision').checked) metrics.push('context_precision');
-                if (document.getElementById('metric-context-recall').checked) metrics.push('context_recall');
-                if (document.getElementById('metric-answer-correctness').checked) metrics.push('answer_correctness');
+                if (document.getElementById('metric-answer-accuracy')?.checked) metrics.push('answer_accuracy');
+                if (document.getElementById('metric-factual-correctness')?.checked) metrics.push('factual_correctness');
+                if (document.getElementById('metric-context-precision')?.checked) metrics.push('context_precision');
+                if (document.getElementById('metric-context-recall')?.checked) metrics.push('context_recall');
+                if (document.getElementById('metric-answer-correctness')?.checked) metrics.push('answer_correctness');
                 // Advanced metrics
-                if (document.getElementById('metric-faithfulness').checked) metrics.push('faithfulness');
-                if (document.getElementById('metric-answer-relevancy').checked) metrics.push('answer_relevancy');
-                if (document.getElementById('metric-response-relevancy').checked) metrics.push('response_relevancy');
-                if (document.getElementById('metric-context-relevance').checked) metrics.push('context_relevance');
+                if (document.getElementById('metric-faithfulness')?.checked) metrics.push('faithfulness');
+                if (document.getElementById('metric-answer-relevancy')?.checked) metrics.push('answer_relevancy');
+                if (document.getElementById('metric-response-relevancy')?.checked) metrics.push('response_relevancy');
                 
                 if (metrics.length === 0) {
                     throw new Error('請至少選擇一個評估指標');
@@ -2434,13 +2626,21 @@
                 updateEvalProgress(20, '連接 API...');
                 addLog('🚀 開始評估流程...');
                 addLog(`📊 選擇的評估指標: ${metrics.join(', ')}`);
+                addLog('⏰ 注意：RAGAS 評估可能需要較長時間，請耐心等待...', 'info');
                 
                 // Simulate progress during evaluation
                 let currentProgress = 20;
                 const evalProgressInterval = setInterval(() => {
-                    if (currentProgress < 85) {
-                        currentProgress += 3;
-                        updateEvalProgress(currentProgress, '評估中...');
+                    if (currentProgress < 95) {
+                        // Slow down progress as it gets higher
+                        const increment = currentProgress < 50 ? 3 : currentProgress < 70 ? 2 : currentProgress < 85 ? 1 : 0.5;
+                        currentProgress += increment;
+                        updateEvalProgress(Math.min(currentProgress, 95), '評估中...');
+                        
+                        // Add periodic log messages
+                        if (Math.floor(currentProgress) % 10 === 0) {
+                            addLog(`⏳ 評估進度: ${Math.floor(currentProgress)}% (RAGAS 正在評估每個問題...)`);
+                        }
                     }
                 }, 3000);  // Update every 3 seconds
                 
@@ -2514,23 +2714,50 @@
                         `;
                     }
                     
+                    // Generate comprehensive performance report
+                    const performanceReport = generatePerformanceReport(result.scores, result.total_tests, testsetPath);
+                    
                     resultBox.innerHTML = `
                         <div class="alert alert-success">
                             ✅ 評估完成！
                         </div>
-                        <h3>評估結果</h3>
-                        <p><strong>測試集：</strong>${testsetPath}</p>
-                        <p><strong>總測試數：</strong>${result.total_tests}</p>
-                        <p><strong>評估時間：</strong>${result.evaluation_time || 'N/A'}</p>
-                        <p><strong>結果檔案：</strong>${result.result_file}</p>
                         
-                        <h4 style="margin-top: 30px;">評估指標得分</h4>
-                        ${metricsTable}
-                        ${f1Explanation}
+                        <!-- 基本資訊 -->
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                            <h3 style="margin-top: 0; color: #495057;">📊 評估摘要</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                                <div><strong>測試集：</strong>${testsetPath}</div>
+                                <div><strong>總測試數：</strong>${result.total_tests}</div>
+                                <div><strong>評估時間：</strong>${result.evaluation_time || 'N/A'}</div>
+                                <div><strong>結果檔案：</strong>${result.result_file}</div>
+                            </div>
+                        </div>
                         
-                        <div class="button-group" style="margin-top: 30px;">
+                        <!-- 指標得分 -->
+                        <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                            <h3 style="margin-top: 0; color: #495057;">📈 指標得分</h3>
+                            ${performanceReport.metricsChart}
+                        </div>
+                        
+                        <!-- 效能分析 -->
+                        <div style="background: #fff3e0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                            <h3 style="margin-top: 0; color: #e65100;">🔍 效能分析</h3>
+                            ${performanceReport.analysis}
+                        </div>
+                        
+                        <!-- 改進建議 -->
+                        <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                            <h3 style="margin-top: 0; color: #2e7d32;">💡 改進建議</h3>
+                            ${performanceReport.improvements}
+                        </div>
+                        
+                        <!-- 操作按鈕 -->
+                        <div class="button-group" style="margin-top: 30px; text-align: center;">
                             <button type="button" class="btn btn-primary" onclick="downloadEvaluationResult('${result.result_file}')">
                                 📥 下載評估報告
+                            </button>
+                            <button type="button" class="btn btn-success" onclick="downloadPerformanceReport()">
+                                📊 下載效能報告
                             </button>
                             <button type="button" class="btn btn-secondary" onclick="location.reload()">
                                 🔄 開始新評估

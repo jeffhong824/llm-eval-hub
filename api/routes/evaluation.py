@@ -441,14 +441,14 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                         request.target_api_url,
                         json=payload,
                         headers=headers,
-                        timeout=60  # Increase timeout for LLM responses
+                        timeout=30  # Reduce timeout to fail faster
                     )
                 else:
                     api_response = requests.get(
                         request.target_api_url,
                         params=payload,
                         headers=headers,
-                        timeout=30
+                        timeout=15  # Reduce timeout for GET requests
                     )
                 
                 if api_response.status_code == 200:
@@ -470,10 +470,23 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                     
             except Exception as e:
                 logger.error(f"Error calling API for question {idx}: {str(e)}")
-                responses.append("")
+                # Add empty response but log the error type
+                if "timeout" in str(e).lower():
+                    logger.warning(f"Timeout for question {idx}, skipping...")
+                responses.append("")  # Empty response for failed API calls
         
         # Add responses to dataframe
         df['response'] = responses
+        
+        # Check if we have enough valid responses
+        valid_responses = [r for r in responses if r and len(str(r).strip()) > 0]
+        logger.info(f"API call results: {len(valid_responses)}/{len(responses)} successful responses")
+        
+        if len(valid_responses) < len(responses) * 0.5:  # Less than 50% success rate
+            logger.warning(f"Low API success rate: {len(valid_responses)}/{len(responses)}. Consider checking API configuration.")
+        
+        if len(valid_responses) == 0:
+            raise ValueError("No valid API responses received. Please check your API configuration and try again.")
         
         # Step 3: Validate and Initialize Judge LLM (use custom API keys if provided)
         logger.info(f"Initializing Judge LLM: {request.judge_model_provider}/{request.judge_model_name}")
@@ -499,19 +512,14 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
                     f"• gpt-3.5-turbo-16k"
                 )
             
-            # 使用RAGAS推薦的新方式
-            try:
-                from ragas.llms.base import llm_factory
-                evaluator_llm = llm_factory('openai', model=model_name, api_key=api_key)
-                logger.info(f"Using RAGAS llm_factory for {model_name}")
-            except Exception as e:
-                logger.warning(f"Failed to use llm_factory, falling back to LangchainLLMWrapper: {e}")
-                # 回退到舊方式，但使用最小參數集
-                chat_llm = ChatOpenAI(
-                    model_name=model_name,
-                    openai_api_key=api_key
-                )
-                evaluator_llm = LangchainLLMWrapper(chat_llm)
+            # 直接使用 LangchainLLMWrapper（更穩定）
+            chat_llm = ChatOpenAI(
+                model=model_name,
+                openai_api_key=api_key,
+                temperature=0.1
+            )
+            evaluator_llm = LangchainLLMWrapper(chat_llm)
+            logger.info(f"Using LangchainLLMWrapper with ChatOpenAI for {model_name}")
         elif request.judge_model_provider == "gemini":
             from langchain_google_genai import ChatGoogleGenerativeAI
             # Use custom API key if provided, otherwise use settings
@@ -519,37 +527,29 @@ async def run_workflow_evaluation(request: WorkflowEvaluationRequest):
             if not api_key:
                 raise ValueError("Gemini API key is required. Please provide it in the form or set GEMINI_API_KEY in .env")
             
-            try:
-                from ragas.llms.base import llm_factory
-                evaluator_llm = llm_factory('google', model=request.judge_model_name, api_key=api_key)
-                logger.info(f"Using RAGAS llm_factory for Gemini {request.judge_model_name}")
-            except Exception as e:
-                logger.warning(f"Failed to use llm_factory for Gemini, falling back to LangchainLLMWrapper: {e}")
-                chat_llm = ChatGoogleGenerativeAI(
-                    model=request.judge_model_name,
-                    google_api_key=api_key,
-                    temperature=0
-                )
-                evaluator_llm = LangchainLLMWrapper(chat_llm)
+            # 直接使用 LangchainLLMWrapper（更穩定）
+            chat_llm = ChatGoogleGenerativeAI(
+                model=request.judge_model_name,
+                google_api_key=api_key,
+                temperature=0.1
+            )
+            evaluator_llm = LangchainLLMWrapper(chat_llm)
+            logger.info(f"Using LangchainLLMWrapper with ChatGoogleGenerativeAI for {request.judge_model_name}")
         elif request.judge_model_provider == "ollama":
             # Use custom base URL if provided, otherwise use settings
             base_url = request.judge_ollama_base_url or settings.ollama_base_url
             if not base_url:
                 raise ValueError("Ollama base URL is required. Please provide it in the form or set OLLAMA_BASE_URL in .env")
             
-            try:
-                from ragas.llms.base import llm_factory
-                evaluator_llm = llm_factory('ollama', model=request.judge_model_name, base_url=base_url)
-                logger.info(f"Using RAGAS llm_factory for Ollama {request.judge_model_name}")
-            except Exception as e:
-                logger.warning(f"Failed to use llm_factory for Ollama, falling back to LangchainLLMWrapper: {e}")
-                chat_llm = ChatOpenAI(
-                    model_name=request.judge_model_name,
-                    base_url=base_url,
-                    api_key="ollama",
-                    temperature=0
-                )
-                evaluator_llm = LangchainLLMWrapper(chat_llm)
+            # 直接使用 LangchainLLMWrapper（更穩定）
+            chat_llm = ChatOpenAI(
+                model=request.judge_model_name,
+                base_url=base_url,
+                api_key="ollama",
+                temperature=0.1
+            )
+            evaluator_llm = LangchainLLMWrapper(chat_llm)
+            logger.info(f"Using LangchainLLMWrapper with ChatOpenAI for Ollama {request.judge_model_name}")
         else:
             raise ValueError(f"Unsupported judge model provider: {request.judge_model_provider}")
         
