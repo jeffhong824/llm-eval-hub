@@ -2300,8 +2300,132 @@
         
         // Download performance report
         function downloadPerformanceReport() {
-            // This would generate a comprehensive PDF report
-            alert('效能報告下載功能將在後續版本中實現');
+            // Get the evaluation result content
+            const reportDiv = document.getElementById('evaluation-result');
+            if (!reportDiv || !reportDiv.innerHTML || reportDiv.innerHTML.trim() === '') {
+                alert('找不到效能報告內容，請先完成評估');
+                return;
+            }
+            
+            // Create a comprehensive HTML report
+            const reportContent = reportDiv.innerHTML;
+            const timestamp = new Date().toLocaleString('zh-TW');
+            
+            // Create full HTML document
+            const htmlContent = `
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG 系統效能評估報告</title>
+    <style>
+        body {
+            font-family: 'Microsoft JhengHei', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .report-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        .report-header h1 {
+            margin: 0 0 10px 0;
+        }
+        .report-section {
+            background: white;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border: 1px solid #e0e0e0;
+        }
+        .score-bar {
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .score-fill {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .score-high { background: linear-gradient(90deg, #4caf50, #8bc34a); }
+        .score-medium { background: linear-gradient(90deg, #ff9800, #ffc107); }
+        .score-low { background: linear-gradient(90deg, #f44336, #e57373); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background: #667eea;
+            color: white;
+        }
+        .footer {
+            text-align: center;
+            color: #666;
+            margin-top: 30px;
+            padding: 20px;
+            border-top: 2px solid #ddd;
+        }
+        @media print {
+            body { background: white; }
+            .report-section { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="report-header">
+        <h1>🎯 RAG 系統效能評估報告</h1>
+        <p>生成時間：${timestamp}</p>
+    </div>
+    
+    ${reportContent}
+    
+    <div class="footer">
+        <p>此報告由 LLM Evaluation Hub 自動生成</p>
+        <p>© 2024 LLM Evaluation Hub. All rights reserved.</p>
+    </div>
+</body>
+</html>`;
+            
+            // Create a blob and download
+            const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `RAG_Performance_Report_${new Date().getTime()}.html`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            // Show success message
+            alert('✅ 效能報告已下載！\n\n您可以在瀏覽器中打開 HTML 文件查看完整報告，或使用瀏覽器的列印功能轉換為 PDF。');
         }
         
         // Toggle metric details
