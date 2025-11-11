@@ -88,17 +88,17 @@ docker-compose logs -f app
 打開瀏覽器訪問：
 
 **🎨 Web 界面（推薦新手）**
-- 完整工作流程: http://localhost:8000/static/workflow.html
-- 主控台: http://localhost:8000
+- 完整工作流程: http://localhost:3010/static/workflow.html
+- 主控台: http://localhost:3010
 
 **📚 API 文檔**
-- Swagger UI: http://localhost:8000/docs
+- Swagger UI: http://localhost:3010/docs
 
 ## 🎬 使用方式
 
 ### 方式 1: Web 界面（最簡單）
 
-1. 訪問 http://localhost:8000/static/workflow.html
+1. 訪問 http://localhost:3010/static/workflow.html
 2. **階段 1**: 輸入使用情境 → 自動生成角色
 3. **階段 2**: 自動生成知識文件
 4. **階段 3**: 選擇 RAG 或 Agent 模式
@@ -110,7 +110,7 @@ docker-compose logs -f app
 ```python
 import requests
 
-BASE_URL = "http://localhost:8000/api/v1/testset"
+BASE_URL = "http://localhost:3010/api/v1/testset"
 
 # 生成角色
 response = requests.post(f"{BASE_URL}/workflow/generate-personas", json={
@@ -228,7 +228,7 @@ python scripts/start.py
 ```python
 import requests
 
-BASE_URL = "http://localhost:8000/api/v1/testset"
+BASE_URL = "http://localhost:3010/api/v1/testset"
 
 # 階段 1: 生成角色
 personas_response = requests.post(f"{BASE_URL}/workflow/generate-personas", json={
@@ -269,7 +269,7 @@ print(f"生成了 {rag_result['total_qa_pairs']} 個 QA pairs")
 
 ### 查看 API 文檔
 
-訪問 http://localhost:8000/docs 查看完整的 API 文檔（Swagger UI）
+訪問 http://localhost:3010/docs 查看完整的 API 文檔（Swagger UI）
 
 ## 🤝 貢獻
 
@@ -298,7 +298,7 @@ MIT License - 詳見 [LICENSE](LICENSE) 文件
 
 ```bash
 # Evaluate with OpenAI judge
-curl -X POST "http://localhost:8000/api/v1/evaluation/judge" \
+curl -X POST "http://localhost:3010/api/v1/evaluation/judge" \
   -H "Content-Type: application/json" \
   -d '{
     "testset_data": [
@@ -315,7 +315,7 @@ curl -X POST "http://localhost:8000/api/v1/evaluation/judge" \
   }'
 
 # Evaluate with Gemini judge
-curl -X POST "http://localhost:8000/api/v1/evaluation/judge" \
+curl -X POST "http://localhost:3010/api/v1/evaluation/judge" \
   -H "Content-Type: application/json" \
   -d '{
     "testset_data": [
@@ -332,7 +332,7 @@ curl -X POST "http://localhost:8000/api/v1/evaluation/judge" \
   }'
 
 # Evaluate with Ollama judge
-curl -X POST "http://localhost:8000/api/v1/evaluation/judge" \
+curl -X POST "http://localhost:3010/api/v1/evaluation/judge" \
   -H "Content-Type: application/json" \
   -d '{
     "testset_data": [

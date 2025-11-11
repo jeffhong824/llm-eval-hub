@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     
     # API Configuration
     api_host: str = Field(default="0.0.0.0", env="API_HOST")
-    api_port: int = Field(default=8000, env="API_PORT")
+    api_port: int = Field(default=3010, env="API_PORT")
     secret_key: str = Field(default="your-secret-key-here", env="SECRET_KEY")
     
     # LangSmith Configuration

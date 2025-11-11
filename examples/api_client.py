@@ -13,7 +13,7 @@ from typing import Dict, List, Any
 class LLMEvalClient:
     """Client for interacting with LLM Evaluation Hub API."""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:3010"):
         """Initialize the client."""
         self.base_url = base_url
         self.client = httpx.AsyncClient(timeout=30.0)
@@ -341,7 +341,7 @@ async def main():
         
     except Exception as e:
         print(f"\nError running examples: {str(e)}")
-        print("Make sure the API server is running on http://localhost:8000")
+        print("Make sure the API server is running on http://localhost:3010")
 
 
 if __name__ == "__main__":

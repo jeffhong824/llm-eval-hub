@@ -1,6 +1,6 @@
 // LLM Evaluation Hub Frontend JavaScript
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:3010';
 
 // Global state
 let currentSection = 'dashboard';

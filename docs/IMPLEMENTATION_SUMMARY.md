@@ -339,7 +339,7 @@ ScenarioDocumentGenerator ┘
 ```python
 import requests
 
-BASE_URL = "http://localhost:8000/api/v1/testset"
+BASE_URL = "http://localhost:3010/api/v1/testset"
 
 # 情境描述
 scenario = """

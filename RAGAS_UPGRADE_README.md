@@ -44,7 +44,7 @@
 
 打開瀏覽器訪問：
 ```
-http://localhost:8000/static/workflow.html
+http://localhost:3010/static/workflow.html
 ```
 
 ### 2. 選擇評估指標

@@ -40,8 +40,8 @@ docker compose up -d
 
 ### 4. Access the Application
 
-- API Documentation: http://localhost:8000/docs
-- Health Check: http://localhost:8000/health
+- API Documentation: http://localhost:3010/docs
+- Health Check: http://localhost:3010/health
 
 ## Option 2: Local Development
 
@@ -72,7 +72,7 @@ python scripts/start.py
 Or using uvicorn directly:
 
 ```bash
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn api.main:app --reload --host 0.0.0.0 --port 3010
 ```
 
 ## Quick Test
@@ -80,13 +80,13 @@ uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ### 1. Check Health
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:3010/health
 ```
 
 ### 2. Generate Testset
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/testset/generate/scenario" \
+curl -X POST "http://localhost:3010/api/v1/testset/generate/scenario" \
   -H "Content-Type: application/json" \
   -d '{
     "scenarios": [
@@ -100,7 +100,7 @@ curl -X POST "http://localhost:8000/api/v1/testset/generate/scenario" \
 
 ```bash
 # Evaluate with Gemini judge
-curl -X POST "http://localhost:8000/api/v1/evaluation/judge" \
+curl -X POST "http://localhost:3010/api/v1/evaluation/judge" \
   -H "Content-Type: application/json" \
   -d '{
     "testset_data": [
@@ -167,7 +167,7 @@ docker compose logs -f
 
 ## Next Steps
 
-1. Explore the API documentation at http://localhost:8000/docs
+1. Explore the API documentation at http://localhost:3010/docs
 2. Try the examples in the `examples/` directory
 3. Run the tutorials in the `tutorials/` directory
 4. Read the full documentation in `README.md`

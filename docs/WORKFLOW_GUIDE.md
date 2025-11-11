@@ -350,7 +350,7 @@ import requests
 import json
 
 # 基礎 URL
-BASE_URL = "http://localhost:8000/api/v1/testset"
+BASE_URL = "http://localhost:3010/api/v1/testset"
 
 # 階段 1: 生成角色
 personas_request = {
@@ -414,7 +414,7 @@ print(f"生成了 {rag_result['total_qa_pairs']} 個 QA pairs")
 
 ```bash
 # 階段 1: 生成角色
-curl -X POST http://localhost:8000/api/v1/testset/workflow/generate-personas \
+curl -X POST http://localhost:3010/api/v1/testset/workflow/generate-personas \
   -H "Content-Type: application/json" \
   -d '{
     "scenario_description": "一個房地產媒合平台...",

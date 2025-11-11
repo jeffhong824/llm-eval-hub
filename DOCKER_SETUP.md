@@ -64,7 +64,7 @@ pip install -r requirements.txt
 cp env.example .env
 
 # 3. 啟動 FastAPI
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn api.main:app --reload --host 0.0.0.0 --port 3010
 ```
 
 ## 驗證安裝
@@ -79,10 +79,10 @@ docker info
 ### 檢查應用狀態
 ```bash
 # 訪問健康檢查
-curl http://localhost:8000/health
+curl http://localhost:3010/health
 
 # 訪問 Web 界面
-# 瀏覽器打開：http://localhost:8000
+# 瀏覽器打開：http://localhost:3010
 ```
 
 ## 常見問題
@@ -97,11 +97,11 @@ A:
 A: 
 ```bash
 # 檢查端口使用情況
-netstat -ano | findstr :8000
+netstat -ano | findstr :3010
 
 # 修改端口（在 docker-compose.yml 中）
 ports:
-  - "8001:8000"  # 改為 8001
+  - "3011:3010"  # 改為 3011
 ```
 
 ### Q: 環境變量未加載
@@ -118,8 +118,8 @@ A:
 
 ## 下一步
 
-1. 啟動應用後訪問 http://localhost:8000
-2. 查看 API 文檔：http://localhost:8000/docs
+1. 啟動應用後訪問 http://localhost:3010
+2. 查看 API 文檔：http://localhost:3010/docs
 3. 開始使用 Web 界面進行 LLM 評估
 
 

@@ -157,7 +157,7 @@ print('Success:', type(m1).__name__, type(m2).__name__)
 
 ### 應用健康檢查
 ```bash
-curl http://localhost:8000/health/
+curl http://localhost:3010/health/
 ```
 
 **結果**: ✅ {"status":"healthy"}

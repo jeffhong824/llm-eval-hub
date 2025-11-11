@@ -85,7 +85,7 @@ def start_application():
             sys.executable, "-m", "uvicorn", 
             "api.main:app", 
             "--host", "0.0.0.0", 
-            "--port", "8000", 
+            "--port", "3010", 
             "--reload"
         ])
     except KeyboardInterrupt:

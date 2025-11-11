@@ -13,7 +13,7 @@ from typing import Dict, List, Any
 class MultiJudgeClient:
     """Client for multi-model judge evaluation."""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://localhost:3010"):
         """Initialize the client."""
         self.base_url = base_url
         self.client = httpx.AsyncClient(timeout=60.0)

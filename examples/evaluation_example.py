@@ -20,7 +20,7 @@ ANYTHINGLLM_CONFIG = {
 }
 
 CUSTOM_CONVERSATION_CONFIG = {
-    "url": "http://localhost:8000/conversations",
+    "url": "http://localhost:3010/conversations",
     "headers": {
         "Content-Type": "application/json"
     }
@@ -53,7 +53,7 @@ async def test_rag_evaluation():
     # import aiohttp
     # async with aiohttp.ClientSession() as session:
     #     async with session.post(
-    #         "http://localhost:8000/api/v1/evaluation/rag",
+    #         "http://localhost:3010/api/v1/evaluation/rag",
     #         json=rag_request
     #     ) as response:
     #         result = await response.json()
@@ -87,7 +87,7 @@ async def test_agent_evaluation():
     # import aiohttp
     # async with aiohttp.ClientSession() as session:
     #     async with session.post(
-    #         "http://localhost:8000/api/v1/evaluation/agent",
+    #         "http://localhost:3010/api/v1/evaluation/agent",
     #         json=agent_request
     #     ) as response:
     #         result = await response.json()
@@ -113,7 +113,7 @@ async def test_api_connection():
     # import aiohttp
     # async with aiohttp.ClientSession() as session:
     #     async with session.post(
-    #         "http://localhost:8000/api/v1/evaluation/test-api-connection",
+    #         "http://localhost:3010/api/v1/evaluation/test-api-connection",
     #         json=connection_test
     #     ) as response:
     #         result = await response.json()
@@ -143,13 +143,13 @@ def print_usage_examples():
     print("""
     # Create conversation
     curl -X 'POST' \\
-      'http://localhost:8000/conversations' \\
+      'http://localhost:3010/conversations' \\
       -H 'Content-Type: application/json' \\
       -d '{"role": "buyer"}'
     
     # Send message
     curl -X 'POST' \\
-      'http://localhost:8000/conversations/conv_123456/chat' \\
+      'http://localhost:3010/conversations/conv_123456/chat' \\
       -H 'Content-Type: application/json' \\
       -d '{"text": "我想要找信義區的三房兩廳，預算2500萬"}'
     """)
@@ -157,7 +157,7 @@ def print_usage_examples():
     print("\n3. RAG Evaluation API Call:")
     print("""
     curl -X 'POST' \\
-      'http://localhost:8000/api/v1/evaluation/rag' \\
+      'http://localhost:3010/api/v1/evaluation/rag' \\
       -H 'Content-Type: application/json' \\
       -d '{
         "testset_path": "./outputs/rag_testset.xlsx",
@@ -176,12 +176,12 @@ def print_usage_examples():
     print("\n4. Agent Evaluation API Call:")
     print("""
     curl -X 'POST' \\
-      'http://localhost:8000/api/v1/evaluation/agent' \\
+      'http://localhost:3010/api/v1/evaluation/agent' \\
       -H 'Content-Type: application/json' \\
       -d '{
         "testset_path": "./outputs/agent_testset.xlsx",
         "api_config": {
-          "url": "http://localhost:8000/conversations",
+          "url": "http://localhost:3010/conversations",
           "headers": {
             "Content-Type": "application/json"
           }

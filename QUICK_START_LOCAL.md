@@ -25,8 +25,8 @@
    ```
 
 4. **訪問應用**
-   - Web 界面：http://localhost:8000
-   - API 文檔：http://localhost:8000/docs
+   - Web 界面：http://localhost:3010
+   - API 文檔：http://localhost:3010/docs
 
 ### 方案 2：本地開發（無需 Docker）
 
@@ -47,8 +47,8 @@
    ```
 
 4. **訪問應用**
-   - Web 界面：http://localhost:8000
-   - API 文檔：http://localhost:8000/docs
+   - Web 界面：http://localhost:3010
+   - API 文檔：http://localhost:3010/docs
 
 ## 環境變量配置
 
@@ -108,11 +108,11 @@ docker compose version
 ### 端口被佔用
 ```bash
 # 檢查端口使用
-netstat -ano | findstr :8000
+netstat -ano | findstr :3010
 
 # 修改端口（在 docker-compose.yml 中）
 ports:
-  - "8001:8000"
+  - "3011:3010"
 ```
 
 ### 依賴安裝問題
@@ -132,7 +132,7 @@ pip install --user -r requirements.txt
 1. 選擇啟動方案（Docker 或本地）
 2. 配置 API keys
 3. 啟動應用
-4. 訪問 http://localhost:8000
+4. 訪問 http://localhost:3010
 5. 開始使用 LLM 評估功能
 
 ## 支援
