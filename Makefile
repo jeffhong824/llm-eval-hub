@@ -8,7 +8,7 @@ install: ## Install dependencies
 	pip install -r requirements.txt
 
 run: ## Run the application locally
-	uvicorn api.main:app --reload --host 0.0.0.0 --port 3010
+	uvicorn api.main:app --reload --host 0.0.0.0 --port 3013
 
 test: ## Run tests
 	pytest tests/ -v

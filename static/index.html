@@ -329,7 +329,7 @@
     <div class="container">
         <div class="header">
             <h1>🚀 LLM Evaluation Hub</h1>
-            <p>完整的 RAG & Agent 評估工作流程</p>
+            <p>完整的 RAG 評估工作流程</p>
         </div>
         
         <div class="workflow-container">
@@ -338,22 +338,17 @@
                 <div class="step active" data-step="0">
                     <div class="step-number">1</div>
                     <div class="step-title">角色&文件生成</div>
-                    <div class="step-desc">生成用戶與知識庫</div>
+                    <div class="step-desc">生成模擬用戶與描述文件</div>
+                </div>
+                <div class="step" data-step="1">
+                    <div class="step-number">2</div>
+                    <div class="step-title">生成測試集</div>
+                    <div class="step-desc">RAG QA Pairs</div>
                 </div>
                 <div class="step" data-step="2">
-                    <div class="step-number">2</div>
-                    <div class="step-title">選擇模式</div>
-                    <div class="step-desc">RAG 或 Agent</div>
-                </div>
-                <div class="step" data-step="3">
                     <div class="step-number">3</div>
-                    <div class="step-title">生成測試集</div>
-                    <div class="step-desc">QA Pairs / Tasks</div>
-                </div>
-                <div class="step" data-step="4">
-                    <div class="step-number">4</div>
-                    <div class="step-title">評估</div>
-                    <div class="step-desc">執行評估</div>
+                    <div class="step-title">平台評估</div>
+                    <div class="step-desc">基於 Excel 評估</div>
                 </div>
             </div>
             
@@ -375,25 +370,37 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="output-folder">輸出資料夾 *</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
+                            <div style="flex: 1; position: relative;">
                                 <input type="text" id="output-folder" required 
+                                    list="output-folder-list"
                                     placeholder="/app/outputs/my_scenario" 
-                                    value="/app/outputs/scenario_test"
+                                    value="/app/outputs/"
                                     onblur="normalizeOutputFolderPath()"
-                                    style="flex: 1;">
-                                <button type="button" class="btn btn-secondary" onclick="checkExistingPersonas()" style="white-space: nowrap;">
-                                    檢查已有資料
-                                </button>
+                                    oninput="handleOutputFolderInput()"
+                                    onfocus="loadOutputFolders()"
+                                    style="width: 100%;">
+                                <datalist id="output-folder-list"></datalist>
                             </div>
-                            <small>可以輸入容器路徑（如 <code>/app/outputs/scenario_test</code>）。<br>
-                            點擊「檢查已有資料」來載入已存在的資料。</small>
+                            <small>預設在 <code>/app/outputs/</code> 下，可從下拉選單選擇已存在的資料夾，或輸入新資料夾名稱。</small>
                         </div>
                         
                         <div class="form-group">
-                            <label for="scenario-name">情境名稱（選填）</label>
-                            <input type="text" id="scenario-name" 
-                                placeholder="例如：real_estate_platform">
-                            <small>留空則自動生成時間戳記名稱。</small>
+                            <label for="scenario-name">專案名稱（選填）</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <div style="flex: 1; position: relative;">
+                                    <input type="text" id="scenario-name" 
+                                        placeholder="例如：real_estate_platform"
+                                        oninput="updateCheckExistingButton()">
+                                </div>
+                                <button type="button" class="btn btn-secondary" id="check-existing-btn" 
+                                    onclick="checkExistingPersonas()" 
+                                    disabled
+                                    style="white-space: nowrap;"
+                                    title="請先輸入專案名稱才能檢查已有資料">
+                                    檢查已有資料
+                                </button>
+                            </div>
+                            <small>留空則自動生成時間戳記名稱。輸入專案名稱後可點擊「檢查已有資料」來載入已存在的資料。</small>
                         </div>
                     </div>
                     
@@ -468,29 +475,66 @@
                 <div id="personas-result" class="result-box" style="display: none;"></div>
             </div>
             
-            <!-- Stage 1: Generate Documents (Hidden - now merged with Stage 0) -->
-            <div class="stage-content" id="stage-1" style="display: none !important;">
+            <!-- Stage 1: Generate RAG Testset -->
+            <div class="stage-content" id="stage-1" style="display: none;">
                 <div class="stage-intro">
-                    <h2>階段 2: 生成情境文件</h2>
-                    <p>根據您的使用情境，系統將生成以使用者為核心的知識文件，專注於使用者會用到的主要情境和功能。</p>
+                    <h2>階段 2: 生成 RAG 測試集</h2>
+                    <p>使用生成的角色和文件，基於 RAGAS 框架生成問答對測試集（QA Pairs），並輸出為 Excel 檔案。每個問題都對應一個特定的角色。</p>
+                    <div style="margin-top: 15px;">
+                        <button type="button" class="btn btn-secondary" onclick="checkExistingRAGTestset()" style="margin-right: 10px;">
+                            🔍 檢查已有測試集
+                        </button>
+                    </div>
+                    <div id="rag-existing-testset-info" class="alert alert-info" style="display: none; margin-top: 15px;">
+                        <!-- 已存在測試集的信息將顯示在這裡 -->
+                    </div>
                 </div>
                 
-                <form id="documents-form">
+                <form id="rag-testset-form">
                     <div class="form-group">
-                        <label>當前情境</label>
-                        <textarea id="scenario-display" readonly style="background: #f9f9f9;"></textarea>
+                        <label for="rag-use-custom-docs">文件來源</label>
+                        <select id="rag-use-custom-docs" onchange="toggleRAGCustomDocsInput()">
+                            <option value="workflow" id="rag-workflow-docs-option">使用工作流程生成的文件 (未生成)</option>
+                            <option value="custom">使用自定義資料夾</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" id="rag-custom-docs-input" style="display: none;">
+                        <label for="rag-custom-docs-folder">自定義文件資料夾路徑</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="text" id="rag-custom-docs-folder" placeholder="輸入文件資料夾路徑" style="flex: 1;" onblur="normalizeRAGCustomDocsPath()">
+                            <input type="file" id="rag-folder-picker" webkitdirectory directory multiple style="display: none;" onchange="handleRAGFolderSelect(event)">
+                            <button type="button" class="btn btn-secondary" onclick="document.getElementById('rag-folder-picker').click()" style="white-space: nowrap;">
+                                📁 選擇資料夾
+                            </button>
+                        </div>
+                        <div id="rag-folder-info" class="alert alert-info" style="display: none; margin-top: 10px;">
+                            <!-- 文件夾選擇信息將顯示在這裡 -->
+                        </div>
+                        <small>輸入包含文字檔案的資料夾路徑，或點擊按鈕選擇本地資料夾。系統會讀取所有 .txt, .md, .pdf 等文件。</small>
                     </div>
                     
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="num-documents">文件數量</label>
-                            <input type="number" id="num-documents" min="1" max="20" value="1">
-                            <small>建議 1-5 份核心文件，專注於使用者主要使用情境。</small>
+                            <label for="rag-chunk-size">文件分塊大小</label>
+                            <input type="number" id="rag-chunk-size" value="5000" min="100" max="20000">
                         </div>
                         
                         <div class="form-group">
-                            <label for="doc-model-provider">LLM 提供商</label>
-                            <select id="doc-model-provider">
+                            <label for="rag-chunk-overlap">分塊重疊</label>
+                            <input type="number" id="rag-chunk-overlap" value="200" min="0" max="1000">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="rag-qa-per-chunk">每個分塊的 QA 數量</label>
+                            <input type="number" id="rag-qa-per-chunk" value="3" min="1" max="10">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="rag-model-provider">LLM 提供商</label>
+                            <select id="rag-model-provider" onchange="onRAGProviderChange()">
                                 <option value="openai">OpenAI</option>
                                 <option value="gemini">Google Gemini</option>
                                 <option value="ollama">Ollama (本地)</option>
@@ -498,8 +542,35 @@
                         </div>
                         
                         <div class="form-group">
-                            <label for="doc-model-name">模型名稱</label>
-                            <input type="text" id="doc-model-name" value="gpt-4">
+                            <label for="rag-model-name">模型名稱</label>
+                            <select id="rag-model-name">
+                                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                            </select>
+                            <small id="rag-model-hint">建議使用 GPT-4o-mini。</small>
+                        </div>
+                    </div>
+                    
+                    <!-- API Key 配置 -->
+                    <div style="background: #fff3e0; padding: 15px; border-radius: 8px; margin-top: 15px; margin-bottom: 15px;">
+                        <h4 style="margin: 0 0 10px 0; color: #e65100;">🔑 API Key 配置（可選）</h4>
+                        <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">如果您想使用自己的 API Key，請在下方輸入。留空則使用系統預設的 .env 配置。</p>
+                        
+                        <div class="form-group" id="rag-openai-key-group" style="display: none;">
+                            <label for="rag-openai-api-key">OpenAI API Key</label>
+                            <input type="password" id="rag-openai-api-key" placeholder="sk-...（留空使用 .env 配置）">
+                            <small>用於 OpenAI 模型的測試集生成。</small>
+                        </div>
+                        
+                        <div class="form-group" id="rag-gemini-key-group" style="display: none;">
+                            <label for="rag-gemini-api-key">Gemini API Key</label>
+                            <input type="password" id="rag-gemini-api-key" placeholder="AI...（留空使用 .env 配置）">
+                            <small>用於 Gemini 模型的測試集生成。</small>
+                        </div>
+                        
+                        <div class="form-group" id="rag-ollama-url-group" style="display: none;">
+                            <label for="rag-ollama-base-url">Ollama Base URL</label>
+                            <input type="text" id="rag-ollama-base-url" placeholder="http://localhost:11434（留空使用 .env 配置）">
+                            <small>用於 Ollama 模型的測試集生成。</small>
                         </div>
                     </div>
                     
@@ -507,63 +578,20 @@
                         <button type="button" class="btn btn-secondary" onclick="goToStage(0)">
                             上一步
                         </button>
-                        <button type="submit" class="btn btn-primary" id="generate-documents-btn">
-                            生成文件
+                        <button type="submit" class="btn btn-primary" id="generate-rag-testset-btn">
+                            生成 QA Pairs Excel
                         </button>
                     </div>
                 </form>
                 
-                <div id="documents-result" class="result-box" style="display: none;"></div>
+                <div id="rag-testset-result" class="result-box" style="display: none;"></div>
             </div>
             
-            <!-- Stage 2: Choose Workflow -->
-            <div class="stage-content" id="stage-2">
+            <!-- Stage 2: Evaluation -->
+            <div class="stage-content" id="stage-2" style="display: none;">
                 <div class="stage-intro">
-                    <h2>階段 3: 選擇評估模式</h2>
-                    <p>請選擇您要評估的系統類型。兩種模式使用相同的角色和文件，但生成不同類型的測試集。</p>
-                </div>
-                
-                <div class="workflow-choice">
-                    <div class="choice-card" onclick="selectWorkflow('rag')">
-                        <h3>🔍 RAG 模式</h3>
-                        <p>
-                            生成問答對 (QA Pairs)，每個問題都對應一個期望的輸出。
-                            適合評估檢索增強生成系統，測試系統對單次問題的回答質量。
-                        </p>
-                        <p style="margin-top: 15px; font-weight: 600;">
-                            評估指標：準確度、相關性、忠實度、RAGAS 指標等
-                        </p>
-                    </div>
-                    
-                    <div class="choice-card" onclick="selectWorkflow('agent')">
-                        <h3>🤖 Agent 模式</h3>
-                        <p>
-                            生成任務場景，定義角色的最終目標。
-                            適合評估 Agent 系統，測試系統在多輪對話中達成目標的能力。
-                        </p>
-                        <p style="margin-top: 15px; font-weight: 600;">
-                            評估指標：目標達成率、對話輪數、任務完成度等
-                        </p>
-                    </div>
-                </div>
-                
-                <div class="button-group">
-                    <button type="button" class="btn btn-secondary" onclick="goToStage(1)">
-                        上一步
-                    </button>
-                </div>
-            </div>
-            
-            <!-- Stage 3: Generate Testset (RAG/Agent) -->
-            <div class="stage-content" id="stage-3">
-                <!-- Will be populated dynamically based on workflow choice -->
-            </div>
-            
-            <!-- Stage 4: Evaluation -->
-            <div class="stage-content" id="stage-4">
-                <div class="stage-intro">
-                    <h2>階段 4: 執行評估</h2>
-                    <p>配置您要評估的系統 API，使用 RAGAS 框架進行自動化評估。</p>
+                    <h2>階段 3: 基於 Excel 進行平台評估</h2>
+                    <p>使用生成的 QA Pairs Excel 檔案，配置您要評估的系統 API，使用 RAGAS 框架進行自動化評估。</p>
                 </div>
                 
                 <form id="evaluation-form">
@@ -571,13 +599,13 @@
                     <div class="form-group">
                         <label for="testset-source">測試集來源</label>
                         <select id="testset-source" onchange="toggleTestsetInput()">
-                            <option value="workflow">使用工作流程生成的測試集</option>
+                            <option value="workflow">使用工作流程生成的 QA Pairs Excel</option>
                             <option value="custom">選擇自定義測試集 Excel</option>
                         </select>
                     </div>
                     
                     <div class="form-group" id="custom-testset-input" style="display: none;">
-                        <label for="custom-testset-path">測試集 Excel 檔案路徑</label>
+                        <label for="custom-testset-path">QA Pairs Excel 檔案路徑</label>
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <input type="text" id="custom-testset-path" placeholder="輸入測試集檔案路徑" style="flex: 1;" onblur="normalizeTestsetPath()">
                             <input type="file" id="testset-file-picker" accept=".xlsx,.xls" style="display: none;" onchange="handleTestsetFileSelect(event)">
@@ -599,7 +627,7 @@
                         <label for="target-api-url">API 端點 *</label>
                         <input type="text" id="target-api-url" required 
                             placeholder="https://your-api.com/chat">
-                        <small>輸入您要評估的 RAG/Agent 系統 API 端點。</small>
+                        <small>輸入您要評估的 RAG 系統 API 端點。</small>
                     </div>
                     
                     <div class="form-row">
@@ -818,7 +846,7 @@
                     </div>
                     
                     <div class="button-group" style="margin-top: 30px;">
-                        <button type="button" class="btn btn-secondary" onclick="goToStage(3)">
+                        <button type="button" class="btn btn-secondary" onclick="goToStage(1)">
                             上一步
                         </button>
                         <button type="submit" class="btn btn-primary" id="start-evaluation-btn">
@@ -856,7 +884,7 @@
             scenario_name: '',
             personas_json_path: '',
             documents_folder: '',
-            workflow_type: '' // 'rag' or 'agent'
+            workflow_type: 'rag' // Always use RAG mode
         };
         
         // Function to convert Mac local path to container path
@@ -947,14 +975,19 @@
             // Update content
             document.querySelectorAll('.stage-content').forEach(content => {
                 content.classList.remove('active');
+                content.style.display = 'none';
             });
-            document.getElementById(`stage-${stageNum}`).classList.add('active');
+            const targetStage = document.getElementById(`stage-${stageNum}`);
+            if (targetStage) {
+                targetStage.classList.add('active');
+                targetStage.style.display = 'block';
+            }
             
             workflowState.currentStage = stageNum;
             
-            // Update scenario display if moving to stage 1
+            // Initialize RAG testset form when entering stage 1
             if (stageNum === 1) {
-                document.getElementById('scenario-display').value = workflowState.scenario_description;
+                initializeRAGTestsetForm();
             }
         }
 
@@ -988,7 +1021,7 @@
                 scenario_description: document.getElementById('scenario-description').value,
                 num_personas: parseInt(document.getElementById('num-personas').value),
                 output_folder: document.getElementById('output-folder').value,
-                scenario_name: document.getElementById('scenario-name').value || null,
+                scenario_name: document.getElementById('scenario-name')?.value || null,  // Optional, auto-generated if empty
                 model_provider: document.getElementById('persona-model-provider').value,
                 model_name: document.getElementById('persona-model-name').value,
                 language: '繁體中文'
@@ -1056,9 +1089,10 @@
                     addPersonaLog(`✅ 成功生成 ${result.total_personas} 個角色！`, 'success');
                     addPersonaLog(`💾 保存至: ${result.personas_folder}`);
                     
-                    // Store paths
+                    // Store paths and personas
                     workflowState.personas_json_path = result.json_file;
                     workflowState.scenario_name = result.scenario_name;
+                    workflowState.personas = result.personas || result.personas_preview || [];
                     
                     // Wait a bit for visual effect
                     await new Promise(resolve => setTimeout(resolve, 500));
@@ -1067,34 +1101,53 @@
                     const resultBox = document.getElementById('personas-result');
                     resultBox.style.display = 'block';
                     
-                    // Generate persona cards
-                    let personaCards = '';
-                    const personasToShow = result.personas_preview.slice(0, 3);
+                    // Store personas in workflowState for editing
+                    workflowState.personas = result.personas || result.personas_preview || [];
                     
-                    personasToShow.forEach((persona, index) => {
+                    // Generate persona cards - show all personas with edit capability
+                    let personaCards = '';
+                    const allPersonas = result.personas || result.personas_preview || [];
+                    
+                    allPersonas.forEach((persona, index) => {
+                        const personaId = persona.persona_id || `persona_${index}`;
                         personaCards += `
-                            <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 15px; background: #f9f9f9;">
+                            <div id="persona-card-${index}" style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 15px; background: #f9f9f9;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                                     <h4 style="margin: 0; color: #667eea;">
-                                        ${persona.persona_name || persona.persona_id}
+                                        <span id="persona-name-${index}">${persona.persona_name || personaId}</span>
                                     </h4>
-                                    <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
-                                        onclick="togglePersonaDetails('persona-${index}')">
-                                        顯示更多
-                                    </button>
+                                    <div style="display: flex; gap: 5px;">
+                                        <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
+                                            onclick="togglePersonaEdit(${index})" id="edit-btn-${index}">
+                                            編輯
+                                        </button>
+                                        <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
+                                            onclick="togglePersonaDetails(${index})" id="details-btn-${index}">
+                                            顯示詳細
+                                        </button>
+                                    </div>
                                 </div>
                                 
-                                <!-- 基本摘要 -->
-                                <div style="margin-bottom: 10px;">
+                                <!-- 基本摘要（可編輯） -->
+                                <div id="persona-summary-${index}" style="margin-bottom: 10px;">
                                     ${persona.basic_info ? `
-                                        <p style="margin: 5px 0;"><strong>年齡：</strong>${persona.basic_info.age || 'N/A'}</p>
-                                        <p style="margin: 5px 0;"><strong>職業：</strong>${persona.basic_info.occupation || 'N/A'}</p>
-                                        <p style="margin: 5px 0;"><strong>居住地：</strong>${persona.basic_info.location || 'N/A'}</p>
+                                        <p style="margin: 5px 0;"><strong>年齡：</strong><span id="persona-age-${index}">${persona.basic_info.age || 'N/A'}</span></p>
+                                        <p style="margin: 5px 0;"><strong>職業：</strong><span id="persona-occupation-${index}">${persona.basic_info.occupation || 'N/A'}</span></p>
+                                        <p style="margin: 5px 0;"><strong>居住地：</strong><span id="persona-location-${index}">${persona.basic_info.location || 'N/A'}</span></p>
                                     ` : ''}
                                 </div>
                                 
+                                <!-- 編輯表單（預設隱藏） -->
+                                <div id="persona-edit-${index}" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                                    <textarea id="persona-json-${index}" style="width: 100%; min-height: 300px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">${JSON.stringify(persona, null, 2)}</textarea>
+                                    <div style="margin-top: 10px; display: flex; gap: 10px;">
+                                        <button type="button" class="btn btn-primary" onclick="savePersonaEdit(${index})">保存</button>
+                                        <button type="button" class="btn btn-secondary" onclick="cancelPersonaEdit(${index})">取消</button>
+                                    </div>
+                                </div>
+                                
                                 <!-- 詳細內容（預設折疊） -->
-                                <div id="persona-${index}" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                                <div id="persona-details-${index}" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
                                     <pre style="background: white; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 400px; overflow-y: auto;">${JSON.stringify(persona, null, 2)}</pre>
                                 </div>
                             </div>
@@ -1111,13 +1164,17 @@
                                 <h3>生成結果</h3>
                                 <p><strong>情境名稱：</strong>${result.scenario_name}</p>
                                 <p><strong>角色檔案位置：</strong>${result.personas_folder}</p>
-                                <p><strong>Excel 摘要：</strong>${result.excel_file}</p>
-                                <p><strong>JSON 完整檔：</strong>${result.json_file}</p>
+                                <p><strong>JSON 檔案：</strong>${result.json_file}</p>
                             </div>
                         </div>
                         
-                        <h4 style="margin-top: 20px; margin-bottom: 15px;">角色預覽（前3個）：</h4>
+                        <h4 style="margin-top: 20px; margin-bottom: 15px;">所有生成的用戶角色（共 ${allPersonas.length} 個）：</h4>
+                        <p style="margin-bottom: 15px; color: #666;">您可以編輯每個角色的詳細資訊，編輯後點擊「保存」按鈕。</p>
                         ${personaCards}
+                        
+                        <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffc107;">
+                            <strong>💡 提示：</strong> 編輯完成後，請點擊「保存」按鈕以更新角色資訊。所有變更將在生成測試集時使用。
+                        </div>
                         
                         <div id="doc-generation-status" style="margin-top: 20px; padding: 15px; background: #f0f8ff; border-radius: 8px;">
                             <p>⏳ 正在自動生成文件...</p>
@@ -1143,7 +1200,10 @@
             }
         });
 
-        // Handle documents form submission
+        // Documents form submission is now handled within personas-form (stage-0)
+        // The documents are generated automatically after personas generation
+        // Old documents-form event listener removed - form merged into stage-0
+        /*
         document.getElementById('documents-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -1187,8 +1247,8 @@
                         <h4 style="margin-top: 20px;">文件預覽：</h4>
                         <pre>${JSON.stringify(result.documents_preview, null, 2)}</pre>
                         <div class="button-group" style="margin-top: 20px;">
-                            <button type="button" class="btn btn-primary" onclick="goToStage(2)">
-                                下一步：選擇工作流程
+                            <button type="button" class="btn btn-primary" onclick="goToStage(1)" style="padding: 12px 30px; font-size: 16px;">
+                                🚀 下一步：生成測試集
                             </button>
                         </div>
                     `;
@@ -1208,214 +1268,22 @@
                 btn.textContent = '生成文件';
             }
         });
+        */
 
-        // Workflow selection
-        function selectWorkflow(type) {
-            workflowState.workflow_type = type;
-            
-            // Update visual selection
-            document.querySelectorAll('.choice-card').forEach(card => {
-                card.classList.remove('selected');
-            });
-            event.currentTarget.classList.add('selected');
-            
-            // Populate stage 3 based on workflow type
-            const stage3 = document.getElementById('stage-3');
-            
-            if (type === 'rag') {
-                stage3.innerHTML = `
-                    <div class="stage-intro">
-                        <h2>階段 4: 生成 RAG 測試集</h2>
-                        <p>使用生成的角色和文件，創建問答對測試集。每個問題都對應一個特定的角色。</p>
-                        <div style="margin-top: 15px;">
-                            <button type="button" class="btn btn-secondary" onclick="checkExistingRAGTestset()" style="margin-right: 10px;">
-                                🔍 檢查已有測試集
-                            </button>
-                        </div>
-                        <div id="rag-existing-testset-info" class="alert alert-info" style="display: none; margin-top: 15px;">
-                            <!-- 已存在測試集的信息將顯示在這裡 -->
-                        </div>
-                    </div>
-                    
-                    <form id="rag-testset-form">
-                        <div class="form-group">
-                            <label for="rag-use-custom-docs">文件來源</label>
-                            <select id="rag-use-custom-docs" onchange="toggleRAGCustomDocsInput()">
-                                <option value="workflow">使用工作流程生成的文件 (${workflowState.documents_folder || '未生成'})</option>
-                                <option value="custom">使用自定義資料夾</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group" id="rag-custom-docs-input" style="display: none;">
-                            <label for="rag-custom-docs-folder">自定義文件資料夾路徑</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <input type="text" id="rag-custom-docs-folder" placeholder="輸入文件資料夾路徑" style="flex: 1;" onblur="normalizeRAGCustomDocsPath()">
-                                <input type="file" id="rag-folder-picker" webkitdirectory directory multiple style="display: none;" onchange="handleRAGFolderSelect(event)">
-                                <button type="button" class="btn btn-secondary" onclick="document.getElementById('rag-folder-picker').click()" style="white-space: nowrap;">
-                                    📁 選擇資料夾
-                                </button>
-                            </div>
-                            <div id="rag-folder-info" class="alert alert-info" style="display: none; margin-top: 10px;">
-                                <!-- 文件夾選擇信息將顯示在這裡 -->
-                            </div>
-                            <small>輸入包含文字檔案的資料夾路徑，或點擊按鈕選擇本地資料夾。系統會讀取所有 .txt, .md, .pdf 等文件。</small>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="rag-chunk-size">文件分塊大小</label>
-                                <input type="number" id="rag-chunk-size" value="5000" min="100" max="20000">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="rag-chunk-overlap">分塊重疊</label>
-                                <input type="number" id="rag-chunk-overlap" value="200" min="0" max="1000">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="rag-qa-per-chunk">每個分塊的 QA 數量</label>
-                                <input type="number" id="rag-qa-per-chunk" value="3" min="1" max="10">
-                            </div>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="rag-model-provider">LLM 提供商</label>
-                                <select id="rag-model-provider" onchange="onRAGProviderChange()">
-                                    <option value="openai">OpenAI</option>
-                                    <option value="gemini">Google Gemini</option>
-                                    <option value="ollama">Ollama (本地)</option>
-                                </select>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="rag-model-name">模型名稱</label>
-                            <select id="rag-model-name">
-                                <option value="gpt-4o-mini">gpt-4o-mini</option>
-                            </select>
-                            <small id="rag-model-hint">建議使用 GPT-4o-mini。</small>
-                            </div>
-                        </div>
-                        
-                        <!-- API Key 配置 -->
-                        <div style="background: #fff3e0; padding: 15px; border-radius: 8px; margin-top: 15px; margin-bottom: 15px;">
-                            <h4 style="margin: 0 0 10px 0; color: #e65100;">🔑 API Key 配置（可選）</h4>
-                            <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">如果您想使用自己的 API Key，請在下方輸入。留空則使用系統預設的 .env 配置。</p>
-                            
-                            <div class="form-group" id="rag-openai-key-group" style="display: none;">
-                                <label for="rag-openai-api-key">OpenAI API Key</label>
-                                <input type="password" id="rag-openai-api-key" placeholder="sk-...（留空使用 .env 配置）">
-                                <small>用於 OpenAI 模型的測試集生成。</small>
-                            </div>
-                            
-                            <div class="form-group" id="rag-gemini-key-group" style="display: none;">
-                                <label for="rag-gemini-api-key">Gemini API Key</label>
-                                <input type="password" id="rag-gemini-api-key" placeholder="AI...（留空使用 .env 配置）">
-                                <small>用於 Gemini 模型的測試集生成。</small>
-                            </div>
-                            
-                            <div class="form-group" id="rag-ollama-url-group" style="display: none;">
-                                <label for="rag-ollama-base-url">Ollama Base URL</label>
-                                <input type="text" id="rag-ollama-base-url" placeholder="http://localhost:11434（留空使用 .env 配置）">
-                                <small>用於 Ollama 模型的測試集生成。</small>
-                            </div>
-                        </div>
-                        
-                        <div class="button-group">
-                            <button type="button" class="btn btn-secondary" onclick="goToStage(2)">
-                                上一步
-                            </button>
-                            <button type="submit" class="btn btn-primary" id="generate-rag-testset-btn">
-                                生成 RAG 測試集
-                            </button>
-                        </div>
-                    </form>
-                    
-                    <div id="rag-testset-result" class="result-box" style="display: none;"></div>
-                `;
-                
-                // Add event listener for RAG testset form
-                document.getElementById('rag-testset-form').addEventListener('submit', handleRAGTestsetSubmit);
-            } else {
-                stage3.innerHTML = `
-                    <div class="stage-intro">
-                        <h2>階段 4: 生成 Agent 測試集</h2>
-                        <p>使用生成的角色和文件，創建任務場景測試集。每個任務對應一個角色的目標。</p>
-                    </div>
-                    
-                    <form id="agent-testset-form">
-                        <div class="form-group">
-                            <label for="agent-use-custom-docs">文件來源</label>
-                            <select id="agent-use-custom-docs" onchange="toggleAgentCustomDocsInput()">
-                                <option value="workflow">使用工作流程生成的文件 (${workflowState.documents_folder || '未生成'})</option>
-                                <option value="custom">使用自定義資料夾</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group" id="agent-custom-docs-input" style="display: none;">
-                            <label for="agent-custom-docs-folder">自定義文件資料夾路徑</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <input type="text" id="agent-custom-docs-folder" placeholder="輸入文件資料夾路徑" style="flex: 1;" onblur="normalizeAgentCustomDocsPath()">
-                                <input type="file" id="agent-folder-picker" webkitdirectory directory multiple style="display: none;" onchange="handleAgentFolderSelect(event)">
-                                <button type="button" class="btn btn-secondary" onclick="document.getElementById('agent-folder-picker').click()" style="white-space: nowrap;">
-                                    📁 選擇資料夾
-                                </button>
-                            </div>
-                            <small>輸入包含文字檔案的資料夾路徑，或點擊按鈕選擇本地資料夾。系統會讀取所有 .txt, .md, .pdf 等文件。</small>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="agent-chunk-size">文件分塊大小</label>
-                                <input type="number" id="agent-chunk-size" value="5000" min="100" max="20000">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="agent-chunk-overlap">分塊重疊</label>
-                                <input type="number" id="agent-chunk-overlap" value="200" min="0" max="1000">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="agent-tasks-per-chunk">每個分塊的任務數量</label>
-                                <input type="number" id="agent-tasks-per-chunk" value="3" min="1" max="10">
-                            </div>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="agent-model-provider">LLM 提供商</label>
-                                <select id="agent-model-provider">
-                                    <option value="openai">OpenAI</option>
-                                    <option value="gemini">Google Gemini</option>
-                                    <option value="ollama">Ollama (本地)</option>
-                                </select>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="agent-model-name">模型名稱</label>
-                                <input type="text" id="agent-model-name" value="gpt-3.5-turbo">
-                            </div>
-                        </div>
-                        
-                        <div class="button-group">
-                            <button type="button" class="btn btn-secondary" onclick="goToStage(2)">
-                                上一步
-                            </button>
-                            <button type="submit" class="btn btn-primary" id="generate-agent-testset-btn">
-                                生成 Agent 測試集
-                            </button>
-                        </div>
-                    </form>
-                    
-                    <div id="agent-testset-result" class="result-box" style="display: none;"></div>
-                `;
-                
-                // Add event listener for Agent testset form
-                document.getElementById('agent-testset-form').addEventListener('submit', handleAgentTestsetSubmit);
+        // Initialize RAG testset form when stage 1 is shown
+        function initializeRAGTestsetForm() {
+            // Update documents folder option text
+            const workflowOption = document.getElementById('rag-workflow-docs-option');
+            if (workflowOption) {
+                workflowOption.textContent = `使用工作流程生成的文件 (${workflowState.documents_folder || '未生成'})`;
             }
             
-            // Advance to stage 3
-            setTimeout(() => goToStage(3), 500);
+            // Add event listener for RAG testset form if not already added
+            const ragForm = document.getElementById('rag-testset-form');
+            if (ragForm && !ragForm.hasAttribute('data-listener-added')) {
+                ragForm.addEventListener('submit', handleRAGTestsetSubmit);
+                ragForm.setAttribute('data-listener-added', 'true');
+            }
         }
 
         // Toggle custom docs input for RAG
@@ -1424,29 +1292,9 @@
             document.getElementById('rag-custom-docs-input').style.display = useCustom ? 'block' : 'none';
         }
         
-        // Toggle custom docs input for Agent
-        function toggleAgentCustomDocsInput() {
-            const useCustom = document.getElementById('agent-use-custom-docs').value === 'custom';
-            document.getElementById('agent-custom-docs-input').style.display = useCustom ? 'block' : 'none';
-        }
-        
         // Normalize RAG custom docs path
         function normalizeRAGCustomDocsPath() {
             const input = document.getElementById('rag-custom-docs-folder');
-            if (!input.value) return;
-            
-            const originalPath = input.value;
-            const convertedPath = convertToContainerPath(originalPath);
-            
-            if (originalPath !== convertedPath) {
-                input.value = convertedPath;
-                showPathConversionNotification(originalPath, convertedPath);
-            }
-        }
-        
-        // Normalize Agent custom docs path
-        function normalizeAgentCustomDocsPath() {
-            const input = document.getElementById('agent-custom-docs-folder');
             if (!input.value) return;
             
             const originalPath = input.value;
@@ -1504,16 +1352,6 @@
             }
         }
         
-        // Handle Agent folder selection
-        function handleAgentFolderSelect(event) {
-            const files = event.target.files;
-            if (files.length > 0) {
-                const firstFile = files[0];
-                const folderPath = firstFile.webkitRelativePath.split('/')[0];
-                alert(`已選擇資料夾：${folderPath}\n包含 ${files.length} 個檔案`);
-            }
-        }
-
         // Handle RAG testset submission
         async function handleRAGTestsetSubmit(e) {
             e.preventDefault();
@@ -1567,68 +1405,135 @@
             };
             
             try {
-                updateRAGProgress(20, '連接 API...');
+                // Initialize progress display
+                const resultBox = document.getElementById('rag-testset-result');
+                resultBox.style.display = 'block';
+                resultBox.innerHTML = `
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <strong>RAG 測試集生成進度</strong>
+                            <span id="rag-progress-percent" style="color: #4caf50;">0%</span>
+                        </div>
+                        <div style="width: 100%; height: 25px; background: #e0e0e0; border-radius: 12px; overflow: hidden;">
+                            <div id="rag-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #4caf50, #8bc34a); transition: width 0.3s;"></div>
+                        </div>
+                    </div>
+                    <div id="rag-progress-message" style="margin-bottom: 10px; color: #666;">連接 API...</div>
+                    <div id="rag-qa-pairs-list" style="max-height: 300px; overflow-y: auto; margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 5px;">
+                        <div style="font-weight: bold; margin-bottom: 5px;">已生成的 QA Pairs:</div>
+                        <div id="rag-qa-pairs-content" style="font-size: 12px;"></div>
+                    </div>
+                `;
                 
-                // Simulate progress
-                const ragProgressInterval = setInterval(() => {
-                    const currentBar = document.getElementById('rag-progress-bar');
-                    if (currentBar) {
-                        const currentWidth = parseFloat(currentBar.style.width) || 20;
-                        if (currentWidth < 80) {
-                            updateRAGProgress(currentWidth + 4, '生成 QA 對...');
-                        }
-                    }
-                }, 3000);  // Update every 3 seconds
+                // Helper function to update progress
+                const updateRAGProgress = (percent, message) => {
+                    const progressBar = document.getElementById('rag-progress-bar');
+                    const progressPercent = document.getElementById('rag-progress-percent');
+                    const progressMessage = document.getElementById('rag-progress-message');
+                    if (progressBar) progressBar.style.width = percent + '%';
+                    if (progressPercent) progressPercent.textContent = percent + '%';
+                    if (progressMessage) progressMessage.textContent = message;
+                };
                 
+                // Use fetch with streaming response
                 const response = await fetch('/api/v1/testset/workflow/generate-rag-testset', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
                 });
                 
-                clearInterval(ragProgressInterval);
-                updateRAGProgress(90, '處理結果...');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 
-                const result = await response.json();
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let result = null;
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';  // Keep incomplete line in buffer
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                
+                                if (data.type === 'start') {
+                                    updateRAGProgress(10, data.message || '開始生成...');
+                                } else if (data.type === 'qa_pair_generated') {
+                                    const progress = data.progress_percent || 0;
+                                    const total = data.total_generated || 0;
+                                    const chunkProgress = data.chunk_progress || '';
+                                    updateRAGProgress(progress, `已生成 ${total} 個 QA Pairs (${chunkProgress})`);
+                                    
+                                    // Add QA pair to list
+                                    const qaContent = document.getElementById('rag-qa-pairs-content');
+                                    if (qaContent && data.qa_pair) {
+                                        const qaDiv = document.createElement('div');
+                                        qaDiv.style.cssText = 'padding: 5px; margin: 3px 0; background: white; border-radius: 3px; border-left: 3px solid #4caf50;';
+                                        qaDiv.innerHTML = `
+                                            <strong>${data.qa_pair.persona_name || 'Unknown'}</strong>: 
+                                            ${data.qa_pair.question || ''}
+                                        `;
+                                        qaContent.appendChild(qaDiv);
+                                        // Auto scroll to bottom
+                                        qaContent.parentElement.scrollTop = qaContent.parentElement.scrollHeight;
+                                    }
+                                } else if (data.type === 'saving_file') {
+                                    updateRAGProgress(data.progress_percent || 95, data.message || '正在保存檔案...');
+                                } else if (data.type === 'file_saved') {
+                                    updateRAGProgress(100, '✅ Excel 檔案已保存');
+                                } else if (data.type === 'complete') {
+                                    result = data;
+                                    updateRAGProgress(100, '✅ 完成');
+                                } else if (data.type === 'error') {
+                                    throw new Error(data.message || '生成失敗');
+                                }
+                            } catch (e) {
+                                console.error('Error parsing SSE data:', e, line);
+                            }
+                        }
+                    }
+                }
+                
+                if (!result) {
+                    throw new Error('未收到完成訊息');
+                }
                 
                 if (result.success) {
-                    updateRAGProgress(100, '✅ 完成');
-                    
                     // Store testset path in workflow state
                     workflowState.rag_testset_path = result.excel_path;
                     console.log('Saved RAG testset path:', result.excel_path);
                     
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    
-                    const resultBox = document.getElementById('rag-testset-result');
-                    resultBox.style.display = 'block';
-                    resultBox.innerHTML = `
-                        <div style="margin-bottom: 15px;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                <strong>RAG 測試集生成進度</strong>
-                                <span style="color: #4caf50;">100%</span>
+                    // Update result box with final results (keep the progress display)
+                    const progressMessage = document.getElementById('rag-progress-message');
+                    if (progressMessage) {
+                        progressMessage.innerHTML = `
+                            <div class="alert alert-success">
+                                ✅ 成功生成 QA Pairs Excel 檔案！
                             </div>
-                            <div style="width: 100%; height: 25px; background: #e0e0e0; border-radius: 12px; overflow: hidden;">
-                                <div style="width: 100%; height: 100%; background: linear-gradient(90deg, #4caf50, #8bc34a); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">✅ 完成</div>
+                            <h3>生成結果</h3>
+                            <p><strong>Excel 檔案路徑：</strong>${result.excel_path}</p>
+                            <p><strong>總 QA 對數：</strong>${result.total_qa_pairs}</p>
+                            <p><strong>文件分塊數：</strong>${result.total_chunks}</p>
+                            <p><strong>原始文件數：</strong>${result.total_documents}</p>
+                            <p><strong>使用的角色數：</strong>${result.personas_used || 'N/A'}</p>
+                            <p><strong>生成方法：</strong>${result.method === 'ragas' ? 'RAGAS 框架' : 'LLM 生成'}</p>
+                            <div class="button-group" style="margin-top: 20px;">
+                                <button type="button" class="btn btn-primary" onclick="goToStage(2)" style="padding: 12px 30px; font-size: 16px;">
+                                    🚀 下一步：基於 Excel 進行平台評估
+                                </button>
                             </div>
-                        </div>
-                        <div class="alert alert-success">
-                            ✅ 成功生成 RAG 測試集！
-                        </div>
-                        <h3>生成結果</h3>
-                        <p><strong>Excel 檔案：</strong>${result.excel_path}</p>
-                        <p><strong>總 QA 對數：</strong>${result.total_qa_pairs}</p>
-                        <p><strong>文件分塊數：</strong>${result.total_chunks}</p>
-                        <p><strong>原始文件數：</strong>${result.total_documents}</p>
-                        <p><strong>使用的角色數：</strong>${result.personas_used}</p>
-                        <div class="button-group" style="margin-top: 20px;">
-                            <button type="button" class="btn btn-primary" onclick="goToStage(4)">
-                                下一步：開始評估
-                            </button>
-                        </div>
-                    `;
+                        `;
+                    }
                 } else {
-                    throw new Error(result.detail || '生成失敗');
+                    throw new Error(result.detail || result.message || '生成失敗');
                 }
             } catch (error) {
                 const resultBox = document.getElementById('rag-testset-result');
@@ -1640,142 +1545,122 @@
                 `;
             } finally {
                 btn.disabled = false;
-                btn.textContent = '生成 RAG 測試集';
+                btn.textContent = '生成 QA Pairs Excel';
             }
         }
 
-        // Handle Agent testset submission
-        async function handleAgentTestsetSubmit(e) {
-            e.preventDefault();
+        // Toggle persona details
+        // Persona editing functions
+        function togglePersonaEdit(index) {
+            const editDiv = document.getElementById(`persona-edit-${index}`);
+            const detailsDiv = document.getElementById(`persona-details-${index}`);
+            const summaryDiv = document.getElementById(`persona-summary-${index}`);
+            const editBtn = document.getElementById(`edit-btn-${index}`);
             
-            const btn = document.getElementById('generate-agent-testset-btn');
-            btn.disabled = true;
-            btn.innerHTML = '<span class="loading"></span> 生成中...';
-            
-            // Show progress
-            const resultBox = document.getElementById('agent-testset-result');
-            resultBox.style.display = 'block';
-            resultBox.innerHTML = `
-                <div style="margin-bottom: 15px;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                        <strong>Agent 測試集生成進度</strong>
-                        <span id="agent-progress-percent">0%</span>
-                    </div>
-                    <div style="width: 100%; height: 25px; background: #e0e0e0; border-radius: 12px; overflow: hidden;">
-                        <div id="agent-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #9c27b0, #ba68c8); transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;"></div>
-                    </div>
-                </div>
-            `;
-            
-            function updateAgentProgress(percent, text = '') {
-                const bar = document.getElementById('agent-progress-bar');
-                const percentText = document.getElementById('agent-progress-percent');
-                if (bar && percentText) {
-                    bar.style.width = percent + '%';
-                    bar.textContent = text || (percent + '%');
-                    percentText.textContent = percent + '%';
-                }
-            }
-            
-            // Determine documents folder
-            const useCustom = document.getElementById('agent-use-custom-docs').value === 'custom';
-            const documentsFolder = useCustom 
-                ? document.getElementById('agent-custom-docs-folder').value 
-                : workflowState.documents_folder;
-            
-            const formData = {
-                documents_folder: documentsFolder,
-                personas_json_path: workflowState.personas_json_path,
-                output_folder: workflowState.output_folder,
-                scenario_name: workflowState.scenario_name,
-                model_provider: document.getElementById('agent-model-provider').value,
-                model_name: document.getElementById('agent-model-name').value,
-                language: '繁體中文',
-                chunk_size: parseInt(document.getElementById('agent-chunk-size').value),
-                chunk_overlap: parseInt(document.getElementById('agent-chunk-overlap').value),
-                tasks_per_chunk: parseInt(document.getElementById('agent-tasks-per-chunk').value)
-            };
-            
-            try {
-                updateAgentProgress(20, '連接 API...');
-                
-                // Simulate progress
-                const agentProgressInterval = setInterval(() => {
-                    const currentBar = document.getElementById('agent-progress-bar');
-                    if (currentBar) {
-                        const currentWidth = parseFloat(currentBar.style.width) || 20;
-                        if (currentWidth < 80) {
-                            updateAgentProgress(currentWidth + 4, '生成任務...');
-                        }
-                    }
-                }, 3000);  // Update every 3 seconds
-                
-                const response = await fetch('/api/v1/testset/workflow/generate-agent-testset', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(formData)
-                });
-                
-                clearInterval(agentProgressInterval);
-                updateAgentProgress(90, '處理結果...');
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    updateAgentProgress(100, '✅ 完成');
-                    
-                    // Store testset path in workflow state
-                    workflowState.agent_testset_path = result.excel_path;
-                    console.log('Saved Agent testset path:', result.excel_path);
-                    
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    
-                    const resultBox = document.getElementById('agent-testset-result');
-                    resultBox.style.display = 'block';
-                    resultBox.innerHTML = `
-                        <div style="margin-bottom: 15px;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                <strong>Agent 測試集生成進度</strong>
-                                <span style="color: #4caf50;">100%</span>
-                            </div>
-                            <div style="width: 100%; height: 25px; background: #e0e0e0; border-radius: 12px; overflow: hidden;">
-                                <div style="width: 100%; height: 100%; background: linear-gradient(90deg, #4caf50, #8bc34a); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">✅ 完成</div>
-                            </div>
-                        </div>
-                        <div class="alert alert-success">
-                            ✅ 成功生成 Agent 測試集！
-                        </div>
-                        <h3>生成結果</h3>
-                        <p><strong>Excel 檔案：</strong>${result.excel_path}</p>
-                        <p><strong>總任務數：</strong>${result.total_tasks}</p>
-                        <p><strong>文件分塊數：</strong>${result.total_chunks}</p>
-                        <p><strong>原始文件數：</strong>${result.total_documents}</p>
-                        <p><strong>使用的角色數：</strong>${result.personas_used}</p>
-                        <div class="button-group" style="margin-top: 20px;">
-                            <button type="button" class="btn btn-primary" onclick="goToStage(4)">
-                                下一步：開始評估
-                            </button>
-                        </div>
-                    `;
-                } else {
-                    throw new Error(result.detail || '生成失敗');
-                }
-            } catch (error) {
-                const resultBox = document.getElementById('agent-testset-result');
-                resultBox.style.display = 'block';
-                resultBox.innerHTML = `
-                    <div class="alert alert-error">
-                        ❌ 錯誤：${error.message}
-                    </div>
-                `;
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '生成 Agent 測試集';
+            if (editDiv && editDiv.style.display === 'none') {
+                editDiv.style.display = 'block';
+                if (detailsDiv) detailsDiv.style.display = 'none';
+                if (summaryDiv) summaryDiv.style.display = 'none';
+                if (editBtn) editBtn.textContent = '取消編輯';
+            } else if (editDiv) {
+                editDiv.style.display = 'none';
+                if (summaryDiv) summaryDiv.style.display = 'block';
+                if (editBtn) editBtn.textContent = '編輯';
             }
         }
         
-        // Toggle persona details
-        function togglePersonaDetails(personaId) {
+        async function savePersonaEdit(index) {
+            try {
+                const jsonText = document.getElementById(`persona-json-${index}`).value;
+                const updatedPersona = JSON.parse(jsonText);
+                
+                // Update workflowState
+                if (workflowState.personas && workflowState.personas[index]) {
+                    workflowState.personas[index] = updatedPersona;
+                }
+                
+                // Update display
+                const personaNameEl = document.getElementById(`persona-name-${index}`);
+                if (personaNameEl) personaNameEl.textContent = updatedPersona.persona_name || updatedPersona.persona_id;
+                
+                const ageEl = document.getElementById(`persona-age-${index}`);
+                if (ageEl && updatedPersona.basic_info) ageEl.textContent = updatedPersona.basic_info.age || 'N/A';
+                
+                const occupationEl = document.getElementById(`persona-occupation-${index}`);
+                if (occupationEl && updatedPersona.basic_info) occupationEl.textContent = updatedPersona.basic_info.occupation || 'N/A';
+                
+                const locationEl = document.getElementById(`persona-location-${index}`);
+                if (locationEl && updatedPersona.basic_info) locationEl.textContent = updatedPersona.basic_info.location || 'N/A';
+                
+                // Save to file if json_path exists
+                if (workflowState.personas_json_path && workflowState.personas) {
+                    try {
+                        const response = await fetch('/api/v1/testset/workflow/update-personas', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                json_path: workflowState.personas_json_path,
+                                personas: workflowState.personas
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        if (result.success) {
+                            togglePersonaEdit(index);
+                            alert('✅ 角色資訊已更新並保存到檔案！');
+                        } else {
+                            throw new Error(result.error || '保存失敗');
+                        }
+                    } catch (saveError) {
+                        console.error('Error saving to file:', saveError);
+                        togglePersonaEdit(index);
+                        alert('⚠️ 角色資訊已更新，但保存到檔案時發生錯誤：' + saveError.message);
+                    }
+                } else {
+                    togglePersonaEdit(index);
+                    alert('✅ 角色資訊已更新！（尚未保存到檔案，將在生成測試集時保存）');
+                }
+            } catch (error) {
+                alert('❌ JSON 格式錯誤，請檢查輸入內容：' + error.message);
+            }
+        }
+        
+        function cancelPersonaEdit(index) {
+            if (workflowState.personas && workflowState.personas[index]) {
+                const originalPersona = workflowState.personas[index];
+                document.getElementById(`persona-json-${index}`).value = JSON.stringify(originalPersona, null, 2);
+            }
+            togglePersonaEdit(index);
+        }
+        
+        function togglePersonaDetails(index) {
+            const detailsDiv = document.getElementById(`persona-details-${index}`);
+            const editDiv = document.getElementById(`persona-edit-${index}`);
+            const detailsBtn = document.getElementById(`details-btn-${index}`);
+            
+            if (editDiv && editDiv.style.display !== 'none') {
+                editDiv.style.display = 'none';
+                const editBtn = document.getElementById(`edit-btn-${index}`);
+                if (editBtn) editBtn.textContent = '編輯';
+            }
+            
+            if (detailsDiv && detailsDiv.style.display === 'none') {
+                detailsDiv.style.display = 'block';
+                if (detailsBtn) detailsBtn.textContent = '隱藏詳細';
+                
+                if (workflowState.personas && workflowState.personas[index]) {
+                    const persona = workflowState.personas[index];
+                    const preEl = detailsDiv.querySelector('pre');
+                    if (preEl) preEl.textContent = JSON.stringify(persona, null, 2);
+                }
+            } else if (detailsDiv) {
+                detailsDiv.style.display = 'none';
+                if (detailsBtn) detailsBtn.textContent = '顯示詳細';
+            }
+        }
+        
+        // Legacy function for backward compatibility
+        function togglePersonaDetailsOld(personaId) {
             const detailsDiv = document.getElementById(personaId);
             const btn = event.target;
             
@@ -1788,13 +1673,139 @@
             }
         }
         
+        // Load output folders for dropdown
+        async function loadOutputFolders() {
+            try {
+                const response = await fetch('/api/v1/testset/workflow/list-output-folders?base_path=/app/outputs');
+                const result = await response.json();
+                
+                const datalist = document.getElementById('output-folder-list');
+                if (datalist && result.folders) {
+                    datalist.innerHTML = '';
+                    result.folders.forEach(folder => {
+                        const option = document.createElement('option');
+                        option.value = `/app/outputs/${folder}`;
+                        datalist.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading output folders:', error);
+            }
+        }
+        
+        // Handle output folder input
+        function handleOutputFolderInput() {
+            const input = document.getElementById('output-folder');
+            if (input && !input.value.startsWith('/app/outputs/')) {
+                // Auto-prepend /app/outputs/ if not present
+                if (!input.value.startsWith('/app/')) {
+                    input.value = '/app/outputs/' + input.value.replace(/^\/+/, '');
+                }
+            }
+        }
+        
+        // Show personas with edit capability
+        function showPersonasWithEdit(personas, result) {
+            const resultBox = document.getElementById('personas-result');
+            if (!resultBox) return;
+            
+            resultBox.style.display = 'block';
+            
+            let personaCards = '';
+            personas.forEach((persona, index) => {
+                const personaId = persona.persona_id || `persona_${index}`;
+                personaCards += `
+                    <div id="persona-card-${index}" style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 15px; background: #f9f9f9;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h4 style="margin: 0; color: #667eea;">
+                                <span id="persona-name-${index}">${persona.persona_name || personaId}</span>
+                            </h4>
+                            <div style="display: flex; gap: 5px;">
+                                <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
+                                    onclick="togglePersonaEdit(${index})" id="edit-btn-${index}">
+                                    編輯
+                                </button>
+                                <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
+                                    onclick="togglePersonaDetails(${index})" id="details-btn-${index}">
+                                    顯示詳細
+                                </button>
+                            </div>
+                        </div>
+                        <div id="persona-summary-${index}" style="margin-bottom: 10px;">
+                            ${persona.basic_info ? `
+                                <p style="margin: 5px 0;"><strong>年齡：</strong><span id="persona-age-${index}">${persona.basic_info.age || 'N/A'}</span></p>
+                                <p style="margin: 5px 0;"><strong>職業：</strong><span id="persona-occupation-${index}">${persona.basic_info.occupation || 'N/A'}</span></p>
+                                <p style="margin: 5px 0;"><strong>居住地：</strong><span id="persona-location-${index}">${persona.basic_info.location || 'N/A'}</span></p>
+                            ` : ''}
+                        </div>
+                        <div id="persona-edit-${index}" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                            <textarea id="persona-json-${index}" style="width: 100%; min-height: 300px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">${JSON.stringify(persona, null, 2)}</textarea>
+                            <div style="margin-top: 10px; display: flex; gap: 10px;">
+                                <button type="button" class="btn btn-primary" onclick="savePersonaEdit(${index})">保存</button>
+                                <button type="button" class="btn btn-secondary" onclick="cancelPersonaEdit(${index})">取消</button>
+                            </div>
+                        </div>
+                        <div id="persona-details-${index}" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                            <pre style="background: white; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 400px; overflow-y: auto;">${JSON.stringify(persona, null, 2)}</pre>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            resultBox.innerHTML = `
+                <div class="alert alert-success">
+                    ✅ 已載入 ${personas.length} 個用戶角色！
+                </div>
+                <h4 style="margin-top: 20px; margin-bottom: 15px;">所有用戶角色（共 ${personas.length} 個）：</h4>
+                <p style="margin-bottom: 15px; color: #666;">您可以編輯每個角色的詳細資訊，編輯後點擊「保存」按鈕。</p>
+                ${personaCards}
+                <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffc107;">
+                    <strong>💡 提示：</strong> 編輯完成後，請點擊「保存」按鈕以更新角色資訊。所有變更將在生成測試集時使用。
+                </div>
+                <div style="margin-top: 30px; padding: 20px; background: #f0f8ff; border-radius: 8px; border: 2px solid #667eea; text-align: center;">
+                    <p style="margin-bottom: 15px; font-size: 16px; color: #333;">準備好生成測試集了嗎？</p>
+                    <div class="button-group" style="display: flex; gap: 15px; justify-content: center;">
+                        <button type="button" class="btn btn-primary" onclick="goToStage(1)" style="padding: 12px 30px; font-size: 16px;">
+                            🚀 下一步：生成測試集
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Update check existing button state based on scenario name
+        function updateCheckExistingButton() {
+            const scenarioName = document.getElementById('scenario-name').value.trim();
+            const checkBtn = document.getElementById('check-existing-btn');
+            if (checkBtn) {
+                if (scenarioName) {
+                    checkBtn.disabled = false;
+                    checkBtn.title = '點擊檢查已有資料';
+                    checkBtn.style.opacity = '1';
+                    checkBtn.style.cursor = 'pointer';
+                } else {
+                    checkBtn.disabled = true;
+                    checkBtn.title = '請先輸入專案名稱才能檢查已有資料';
+                    checkBtn.style.opacity = '0.5';
+                    checkBtn.style.cursor = 'not-allowed';
+                }
+            }
+        }
+        
         // Check for existing personas in the output folder
         async function checkExistingPersonas() {
             const outputFolder = document.getElementById('output-folder').value;
+            const scenarioName = document.getElementById('scenario-name').value.trim();
             const infoDiv = document.getElementById('existing-data-info');
             
             if (!outputFolder) {
                 alert('請先輸入輸出資料夾路徑');
+                return;
+            }
+            
+            if (!scenarioName) {
+                alert('請先輸入專案名稱才能檢查已有資料');
+                document.getElementById('scenario-name').focus();
                 return;
             }
             
@@ -1805,35 +1816,122 @@
                 const response = await fetch('/api/v1/testset/workflow/check-existing-data', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ output_folder: outputFolder })
+                    body: JSON.stringify({ 
+                        output_folder: outputFolder,
+                        scenario_name: scenarioName
+                    })
                 });
                 
                 const result = await response.json();
                 
-                if (result.has_personas) {
-                    // Load existing personas
+                if (result.has_personas && result.has_documents) {
+                    // Both personas and documents exist with valid JSON - load and show results
                     workflowState.personas_json_path = result.personas_json_path;
                     workflowState.scenario_name = result.scenario_name || 'existing_scenario';
-                    workflowState.output_folder = outputFolder;
+                    workflowState.output_folder = result.scenario_folder || outputFolder;
+                    workflowState.documents_folder = result.documents_folder;
                     
-                    // Show info with option to skip to next step
-                    infoDiv.innerHTML = `
-                        <div class="alert alert-success">
-                            ✅ 發現已存在的角色資料！
-                            <p><strong>角色數量：</strong>${result.total_personas}</p>
-                            <p><strong>角色檔案：</strong>${result.personas_json_path}</p>
-                            <p><strong>情境名稱：</strong>${result.scenario_name || 'N/A'}</p>
-                            ${result.has_documents ? `<p><strong>文件資料夾：</strong>${result.documents_folder}</p>` : ''}
-                            <div class="button-group" style="margin-top: 15px;">
-                                <button type="button" class="btn btn-primary" onclick="loadExistingData('${result.personas_json_path}', '${result.scenario_name}', ${result.has_documents}, '${result.documents_folder || ''}')">
-                                    載入資料並跳到下一步
-                                </button>
-                                <button type="button" class="btn btn-secondary" onclick="document.getElementById('existing-data-info').style.display='none'">
-                                    重新生成
-                                </button>
+                    // Load personas from JSON
+                    try {
+                        const personasResponse = await fetch(`/api/v1/testset/workflow/load-personas?json_path=${encodeURIComponent(result.personas_json_path)}`);
+                        const personasData = await personasResponse.json();
+                        workflowState.personas = personasData.personas || [];
+                        workflowState.personas_json_path = result.personas_json_path;  // Store json path for saving
+                        
+                        // Load documents from metadata JSON
+                        let documentsData = null;
+                        if (result.documents_metadata_path) {
+                            try {
+                                const documentsResponse = await fetch(`/api/v1/testset/workflow/load-documents?metadata_path=${encodeURIComponent(result.documents_metadata_path)}`);
+                                documentsData = await documentsResponse.json();
+                                workflowState.documents = documentsData.documents || [];
+                            } catch (docError) {
+                                console.error('Error loading documents:', docError);
+                            }
+                        }
+                        
+                        // Show personas with edit capability
+                        showPersonasWithEdit(workflowState.personas, result);
+                        
+                        // Show info with option to proceed
+                        const documentsInfo = documentsData ? `<p><strong>文件數量：</strong>${documentsData.total || 0}</p>` : '';
+                        infoDiv.innerHTML = `
+                            <div class="alert alert-success">
+                                ✅ 發現已存在的完整資料（角色 + 文件）！
+                                <p><strong>角色數量：</strong>${result.total_personas}</p>
+                                ${documentsInfo}
+                                <p><strong>情境名稱：</strong>${result.scenario_name || 'N/A'}</p>
+                                <p><strong>專案資料夾：</strong>${result.scenario_folder || result.documents_folder}</p>
+                                <p style="margin-top: 10px; color: #666;">已載入資料，您可以編輯角色或直接跳到下一步。</p>
+                                <div class="button-group" style="margin-top: 15px; display: flex; gap: 10px;">
+                                    <button type="button" class="btn btn-primary" onclick="goToStage(1)" style="flex: 1;">
+                                        🚀 下一步：生成測試集
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('existing-data-info').style.display='none'" style="flex: 1;">
+                                        重新生成
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                    `;
+                        `;
+                        // Ensure the info div is visible
+                        infoDiv.style.display = 'block';
+                    } catch (error) {
+                        console.error('Error loading personas:', error);
+                        infoDiv.innerHTML = `
+                            <div class="alert alert-error">
+                                ❌ 載入角色資料失敗：${error.message}
+                            </div>
+                        `;
+                    }
+                } else if (result.has_personas) {
+                    // Only personas exist (no documents or documents JSON missing)
+                    // Use the scenario name from input if provided, otherwise use the detected one
+                    const inputScenarioName = document.getElementById('scenario-name').value.trim();
+                    workflowState.personas_json_path = result.personas_json_path;
+                    workflowState.scenario_name = inputScenarioName || result.scenario_name || 'existing_scenario';
+                    workflowState.output_folder = result.scenario_folder || outputFolder;
+                    
+                    // Load personas from JSON
+                    try {
+                        const personasResponse = await fetch(`/api/v1/testset/workflow/load-personas?json_path=${encodeURIComponent(result.personas_json_path)}`);
+                        const personasData = await personasResponse.json();
+                        workflowState.personas = personasData.personas || [];
+                        workflowState.personas_json_path = result.personas_json_path;  // Store json path for saving
+                        
+                        // Show personas with edit capability
+                        showPersonasWithEdit(workflowState.personas, result);
+                        
+                        const missingDocsMsg = result.has_documents_folder 
+                            ? '文件資料夾存在但缺少有效的 JSON 檔案！' 
+                            : '缺少文件資料！';
+                        
+                        infoDiv.innerHTML = `
+                            <div class="alert alert-warning">
+                                ⚠️ 發現已存在的角色資料，但${missingDocsMsg}
+                                <p><strong>角色數量：</strong>${result.total_personas}</p>
+                                <p><strong>情境名稱：</strong>${result.scenario_name || 'N/A'}</p>
+                                <p style="margin-top: 10px; color: #666;">已載入角色，您可以編輯或繼續生成文件。</p>
+                                <div class="button-group" style="margin-top: 15px;">
+                                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('existing-data-info').style.display='none'">
+                                        繼續生成文件
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                        
+                        // Hide the personas form since we have existing data
+                        const personasForm = document.getElementById('personas-form');
+                        if (personasForm) {
+                            personasForm.style.display = 'none';
+                        }
+                    } catch (error) {
+                        console.error('Error loading personas:', error);
+                        infoDiv.innerHTML = `
+                            <div class="alert alert-error">
+                                ❌ 載入角色資料失敗：${error.message}
+                            </div>
+                        `;
+                    }
                 } else {
                     infoDiv.innerHTML = `
                         <div class="alert alert-info">
@@ -1866,7 +1964,7 @@
                 validateDataIntegrity().then(isValid => {
                     if (isValid) {
                         // Skip to workflow selection
-                        goToStage(2);
+                        goToStage(1);
                     } else {
                         alert('資料不完整，請重新生成或檢查資料夾');
                     }
@@ -1981,8 +2079,8 @@
                             <p><strong>文件資料夾：</strong>${result.documents_folder}</p>
                         </div>
                         <div class="button-group" style="margin-top: 15px;">
-                            <button type="button" class="btn btn-primary" onclick="goToStage(2)">
-                                下一步：選擇工作流程
+                            <button type="button" class="btn btn-primary" onclick="goToStage(1)" style="padding: 12px 30px; font-size: 16px;">
+                                🚀 下一步：生成測試集
                             </button>
                         </div>
                     `;
@@ -2027,8 +2125,15 @@
         async function checkExistingRAGTestset() {
             const infoDiv = document.getElementById('rag-existing-testset-info');
             
-            if (!workflowState.output_folder || !workflowState.scenario_name) {
+            if (!workflowState.output_folder) {
                 alert('請先完成前面的步驟');
+                return;
+            }
+            
+            // scenario_name is auto-generated by backend after persona generation
+            // If not set, user needs to generate personas first
+            if (!workflowState.scenario_name) {
+                alert('請先完成「生成用戶角色」步驟');
                 return;
             }
             
@@ -2092,7 +2197,7 @@
             workflowState.workflow_type = 'rag'; // Ensure workflow type is set
             console.log('Loaded RAG testset:', testsetPath);
             console.log('Workflow state:', workflowState);
-            goToStage(4); // Go to evaluation stage
+            goToStage(2); // Go to evaluation stage
             document.getElementById('rag-existing-testset-info').style.display = 'none';
         }
         
@@ -2712,9 +2817,7 @@
                     }
                 } else {
                     // Use workflow testset
-                    testsetPath = workflowState.workflow_type === 'rag' 
-                        ? workflowState.rag_testset_path 
-                        : workflowState.agent_testset_path;
+                    testsetPath = workflowState.rag_testset_path;
                     
                     if (!testsetPath) {
                         throw new Error('找不到測試集，請先生成測試集或選擇自定義測試集');
@@ -2965,6 +3068,10 @@
         
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
+            // Initialize check existing button state
+            updateCheckExistingButton();
+            // Load output folders on page load
+            loadOutputFolders();
             // Auto-detect models for default provider (OpenAI) using .env keys
             setTimeout(() => {
                 autoDetectJudgeModels(true);  // true = use .env keys

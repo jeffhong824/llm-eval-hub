@@ -1,7 +1,8 @@
 """
 RAG Testset Generator
 
-Generates RAG test sets from documents by chunking them and creating QA pairs.
+Generates RAG test sets from documents using RAGAS framework.
+Loads documents, chunks them, and generates QA pairs using RAGAS.
 """
 
 # Import pydantic patch FIRST, before any langchain imports
@@ -12,21 +13,41 @@ import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import pandas as pd
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import DirectoryLoader, TextLoader
-from langchain_openai import ChatOpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_core.documents import Document
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from configs.settings import settings
+
+# Try to import RAGAS components
+try:
+    from ragas.testset import TestsetGenerator
+    from ragas.testset.graph import KnowledgeGraph, Node, NodeType
+    from ragas.testset.synthesizers import (
+        SingleHopSpecificQuerySynthesizer,
+        MultiHopAbstractQuerySynthesizer,
+        MultiHopSpecificQuerySynthesizer
+    )
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    RAGAS_AVAILABLE = True
+except ImportError:
+    RAGAS_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("RAGAS not available, falling back to LLM-based generation")
 
 logger = logging.getLogger(__name__)
 
 
 class RAGTestsetGenerator:
-    """Generate RAG test sets from documents."""
+    """Generate RAG test sets from documents using RAGAS framework."""
     
     def __init__(self, model_provider: str = "openai", model_name: str = "gpt-3.5-turbo"):
         self.model_provider = model_provider
         self.model_name = model_name
         self.llm = self._create_llm()
+        self.embeddings = self._create_embeddings()
+        self.use_ragas = RAGAS_AVAILABLE
     
     def _create_llm(self):
         """Create LLM instance based on provider and model."""
@@ -54,48 +75,77 @@ class RAGTestsetGenerator:
         else:
             raise ValueError(f"Unsupported model provider: {self.model_provider}")
     
-    def load_documents_from_folder(self, folder_path: str) -> List[str]:
-        """Load all text documents from a folder."""
+    def _create_embeddings(self):
+        """Create embeddings instance for RAGAS."""
+        if self.model_provider == "openai":
+            return OpenAIEmbeddings(api_key=settings.openai_api_key)
+        elif self.model_provider == "gemini":
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+            return GoogleGenerativeAIEmbeddings(
+                model="models/embedding-001",
+                google_api_key=settings.gemini_api_key
+            )
+        else:
+            # Fallback to OpenAI embeddings
+            return OpenAIEmbeddings(api_key=settings.openai_api_key)
+    
+    def load_documents_from_folder(self, folder_path: str) -> List[Document]:
+        """Load all documents from a folder and return as LangChain Documents."""
         try:
-            # Handle Windows absolute paths in Docker
-            if folder_path.startswith('D:\\'):
-                # D:\workplace\project_management\my_github\test -> /app/host_github/test
-                folder_path = folder_path.replace('D:\\workplace\\project_management\\my_github', '/app/host_github')
-                folder_path = folder_path.replace('\\', '/')
-                logger.info(f"Mapped Windows path to Docker path: {folder_path}")
-            elif folder_path.startswith('D:'):
-                # D:\workplace\project_management\my_github\test -> /app/host_github/test
-                folder_path = folder_path.replace('D:\\workplace\\project_management\\my_github', '/app/host_github')
-                folder_path = folder_path.replace('\\', '/')
-                logger.info(f"Mapped Windows path to Docker path: {folder_path}")
+            from ai.testset.output_manager import OutputManager
+            
+            # Map path for Docker compatibility
+            folder_path = OutputManager.map_path_for_docker(folder_path)
+            
+            # Handle Docker paths - map to local if not in Docker
+            import os
+            is_docker = os.path.exists('/app') and os.path.isdir('/app')
+            if folder_path.startswith('/app/') and not is_docker:
+                # Map to local path
+                relative_path = folder_path.replace('/app/', '')
+                current_dir = Path.cwd()
+                project_root = current_dir
+                if (current_dir / "outputs").exists():
+                    project_root = current_dir
+                else:
+                    for parent in current_dir.parents:
+                        if (parent / "outputs").exists():
+                            project_root = parent
+                            break
+                folder_path = str(project_root / relative_path)
             
             folder_path = Path(folder_path)
-            logger.info(f"Looking for documents in: {folder_path}")
-            logger.info(f"Path exists: {folder_path.exists()}")
+            logger.info(f"Loading documents from: {folder_path}")
             
             if not folder_path.exists():
                 raise FileNotFoundError(f"Folder not found: {folder_path}")
             
-            documents = []
-            for file_path in folder_path.rglob("*.txt"):
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read().strip()
-                        if content:
-                            documents.append(content)
-                            logger.info(f"Loaded document: {file_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to load {file_path}: {e}")
+            # Use DirectoryLoader to load only .txt files from the specified folder (non-recursive)
+            # Only load .txt files to avoid loading metadata JSON files and other non-document files
+            loader = DirectoryLoader(
+                str(folder_path),
+                glob="*.txt",  # Only load .txt files, non-recursive
+                loader_cls=TextLoader,
+                loader_kwargs={"encoding": "utf-8"},
+                silent_errors=True
+            )
             
+            documents = loader.load()
             logger.info(f"Loaded {len(documents)} documents from {folder_path}")
+            
+            # Log which files were loaded for debugging
+            if documents:
+                loaded_files = [doc.metadata.get("source", "unknown") for doc in documents]
+                logger.info(f"Loaded files: {loaded_files[:10]}{'...' if len(loaded_files) > 10 else ''}")
+            
             return documents
             
         except Exception as e:
             logger.error(f"Error loading documents from {folder_path}: {e}")
             raise
     
-    def chunk_documents(self, documents: List[str], chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
-        """Split documents into chunks."""
+    def chunk_documents(self, documents: List[Document], chunk_size: int = 1000, chunk_overlap: int = 200) -> List[Document]:
+        """Split documents into chunks using RecursiveCharacterTextSplitter."""
         try:
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=chunk_size,
@@ -104,26 +154,26 @@ class RAGTestsetGenerator:
                 separators=["\n\n", "\n", " ", ""]
             )
             
-            chunks = []
+            chunked_docs = []
             for doc in documents:
-                doc_chunks = text_splitter.split_text(doc)
-                chunks.extend(doc_chunks)
+                chunks = text_splitter.split_documents([doc])
+                chunked_docs.extend(chunks)
             
-            logger.info(f"Created {len(chunks)} chunks from {len(documents)} documents")
-            return chunks
+            logger.info(f"Created {len(chunked_docs)} chunks from {len(documents)} documents")
+            return chunked_docs
             
         except Exception as e:
             logger.error(f"Error chunking documents: {e}")
             raise
     
-    def generate_qa_pairs_for_chunk(
+    async def generate_qa_pairs_for_chunk(
         self, 
         chunk: str, 
         num_pairs: int = 3, 
         language: str = "繁體中文",
         personas: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, str]]:
-        """Generate QA pairs for a single chunk, optionally using specific personas."""
+        """Generate QA pairs for a single chunk, optionally using specific personas (async version)."""
         try:
             # Load system prompt
             from ai.resources.prompt_manager import prompt_manager
@@ -134,15 +184,16 @@ class RAGTestsetGenerator:
             if personas and len(personas) > 0:
                 persona_context = "\n## 用戶角色參考\n\n請根據以下用戶角色來生成問題，確保問題能夠反映這些真實用戶的需求、背景和問問題的方式：\n\n"
                 for i, persona in enumerate(personas[:num_pairs], 1):
+                    # Support both needs_and_goals and needs_and_pain_points for backward compatibility
+                    needs_data = persona.get('needs_and_goals', {}) or persona.get('needs_and_pain_points', {})
+                    
                     persona_context += f"""
 ### 角色 {i}: {persona.get('persona_name', 'Unknown')}
 - **職業背景**: {persona.get('basic_info', {}).get('occupation', 'N/A')}
 - **年齡**: {persona.get('basic_info', {}).get('age', 'N/A')}
-- **核心需求**: {', '.join(persona.get('needs_and_goals', {}).get('core_needs', [])[:2])}
-- **痛點**: {', '.join(persona.get('needs_and_goals', {}).get('pain_points', [])[:2])}
-- **決策風格**: {persona.get('behavior_patterns', {}).get('decision_style', 'N/A')}
-- **溝通方式**: {persona.get('communication_style', {}).get('questioning_approach', 'N/A')}
-- **問問題特色**: {persona.get('communication_style', {}).get('language_characteristics', 'N/A')}
+- **核心需求**: {', '.join(needs_data.get('core_needs', [])[:2])}
+- **痛點**: {', '.join(needs_data.get('pain_points', [])[:2])}
+- **表達清晰度**: {persona.get('communication_style', {}).get('clarity_level', 'N/A')}
 
 """
                 persona_context += "\n**重要**: 每個問題都應該明確對應一個角色，並體現該角色的特徵、需求和提問方式。\n"
@@ -193,7 +244,7 @@ Requirements:
 2. {requirement_2}
 3. Vary the expertise level (beginner to expert)
 4. Mix different question types and intents
-5. Use diverse language patterns and expressions that match the persona's communication style
+5. Use language patterns that match the persona's clarity level
 6. Include personal context and real-world scenarios from the persona's life
 7. Avoid repetitive or generic questions
 8. Make each question sound like a different person asking
@@ -209,7 +260,7 @@ Output Format:
     "answer": "Accurate answer based on the text",
     "context": "Relevant text fragment",
     "difficulty": "easy|medium|hard",
-    "question_type": "practical|problem_solving|decision_making|learning|use_case"{trailing_comma}
+    "question_type": "practical|problem_solving|decision_making|learning|use_case|research"{trailing_comma}
     {persona_name_field}
     {persona_id_field}
   }}
@@ -219,7 +270,8 @@ Output Format:
 Return only the JSON array.
 """
             
-            response = self.llm.invoke(prompt)
+            # Use async invoke to avoid blocking the event loop
+            response = await self.llm.ainvoke(prompt)
             content = response.content.strip()
             
             # Clean up the response content - remove markdown code blocks
@@ -244,8 +296,8 @@ Return only the JSON array.
                     if not all(key in pair for key in required_fields):
                         raise ValueError(f"Missing required fields in QA pair: {required_fields}")
                     
-                    # Validate question_type
-                    valid_types = ["practical", "problem_solving", "decision_making", "learning", "use_case"]
+                    # Validate question_type (support more types including research)
+                    valid_types = ["practical", "problem_solving", "decision_making", "learning", "use_case", "research"]
                     if pair.get("question_type") not in valid_types:
                         logger.warning(f"Invalid question_type: {pair.get('question_type')}, setting to 'practical'")
                         pair["question_type"] = "practical"
@@ -333,6 +385,405 @@ Return only the JSON array.
             logger.warning(f"Using fallback QA pairs due to error: {len(fallback_pairs)} pairs")
             return fallback_pairs
     
+    async def _generate_testset_with_ragas(
+        self,
+        chunked_documents: List[Document],
+        testset_size: int = 30,
+        personas: Optional[List[Dict[str, Any]]] = None
+    ) -> pd.DataFrame:
+        """Generate testset using RAGAS framework."""
+        try:
+            if not RAGAS_AVAILABLE:
+                raise ImportError("RAGAS is not available")
+            
+            logger.info("Using RAGAS framework to generate testset")
+            
+            # Wrap LLM and embeddings for RAGAS
+            ragas_llm = LangchainLLMWrapper(self.llm)
+            ragas_embeddings = LangchainEmbeddingsWrapper(self.embeddings)
+            
+            # Create knowledge graph from chunked documents
+            kg = KnowledgeGraph()
+            for doc in chunked_documents:
+                kg.nodes.append(
+                    Node(
+                        type=NodeType.DOCUMENT,
+                        properties={
+                            "page_content": doc.page_content,
+                            "metadata": doc.metadata
+                        }
+                    )
+                )
+            
+            logger.info(f"Created knowledge graph with {len(kg.nodes)} nodes")
+            
+            # Apply transforms to enrich the knowledge graph
+            # This creates additional node types (entities, relations) that RAGAS needs
+            try:
+                from ragas.testset.transforms import default_transforms, apply_transforms
+                transforms = default_transforms(
+                    documents=chunked_documents,
+                    llm=ragas_llm,
+                    embedding_model=ragas_embeddings
+                )
+                # apply_transforms might return a coroutine in some versions, handle both cases
+                result = apply_transforms(kg, transforms)
+                if hasattr(result, '__await__'):
+                    # It's a coroutine, await it
+                    await result
+                logger.info(f"Applied transforms, knowledge graph now has {len(kg.nodes)} nodes")
+            except Exception as transform_error:
+                logger.warning(f"Failed to apply transforms: {transform_error}, continuing with basic graph")
+            
+            # Verify we have enough nodes
+            if len(kg.nodes) == 0:
+                raise ValueError("Knowledge graph has no nodes after creation")
+            
+            # Create testset generator
+            generator = TestsetGenerator(
+                llm=ragas_llm,
+                embedding_model=ragas_embeddings,
+                knowledge_graph=kg
+            )
+            
+            # Define query distribution (focus on single-hop for simplicity)
+            # Use only SingleHopSpecificQuerySynthesizer to avoid filter issues
+            query_distribution = [
+                (SingleHopSpecificQuerySynthesizer(llm=ragas_llm), 1.0),
+            ]
+            
+            # Generate testset with error handling
+            logger.info(f"Generating {testset_size} QA pairs using RAGAS...")
+            try:
+                dataset = generator.generate(
+                    testset_size=testset_size,
+                    query_distribution=query_distribution
+                )
+                
+                # Convert to pandas DataFrame
+                df = dataset.to_pandas()
+                logger.info(f"Generated {len(df)} QA pairs using RAGAS")
+                
+                # Add persona information if available
+                if personas and len(personas) > 0:
+                    # Distribute personas across QA pairs
+                    for idx, row in df.iterrows():
+                        persona_idx = idx % len(personas)
+                        persona = personas[persona_idx]
+                        df.at[idx, 'persona_id'] = persona.get('persona_id', f"persona_{persona_idx}")
+                        df.at[idx, 'persona_name'] = persona.get('persona_name', 'Unknown')
+                
+                return df
+            except Exception as gen_error:
+                error_msg = str(gen_error)
+                if "No nodes that satisfied" in error_msg or "filter" in error_msg.lower():
+                    logger.warning(f"RAGAS filter error: {error_msg}, falling back to LLM generation")
+                    raise ValueError("RAGAS filter error, use LLM fallback")
+                else:
+                    raise
+            
+        except (ImportError, ValueError) as e:
+            # Re-raise these as they indicate we should use LLM fallback
+            logger.warning(f"RAGAS generation failed: {e}, will use LLM fallback")
+            raise
+        except Exception as e:
+            logger.error(f"Error generating testset with RAGAS: {e}")
+            raise
+    
+    async def generate_testset_async(
+        self, 
+        documents_folder: str, 
+        output_folder: str, 
+        chunk_size: int = 5000, 
+        chunk_overlap: int = 200, 
+        qa_per_chunk: int = 3, 
+        language: str = "繁體中文",
+        personas: Optional[List[Dict[str, Any]]] = None,
+        progress_callback: Optional[callable] = None
+    ) -> Dict[str, Any]:
+        """Generate complete RAG testset using RAGAS or fallback to LLM (async version)."""
+        try:
+            logger.info(f"Starting RAG testset generation from {documents_folder}")
+            
+            # Load documents
+            documents = self.load_documents_from_folder(documents_folder)
+            if not documents:
+                raise ValueError("No documents found in the specified folder")
+            
+            # Chunk documents
+            chunked_docs = self.chunk_documents(documents, chunk_size, chunk_overlap)
+            if not chunked_docs:
+                raise ValueError("No chunks created from documents")
+            
+            logger.info(f"Loaded {len(documents)} documents, created {len(chunked_docs)} chunks")
+            
+            # Try to use RAGAS if available
+            all_qa_pairs = []
+            chunks = []
+            ragas_success = False
+            
+            if self.use_ragas and RAGAS_AVAILABLE:
+                # Calculate testset size based on chunks and qa_per_chunk
+                testset_size = min(len(chunked_docs) * qa_per_chunk, 100)  # Cap at 100
+                
+                # Generate using RAGAS (await since we're in async context)
+                try:
+                    df = await self._generate_testset_with_ragas(
+                        chunked_docs,
+                        testset_size=testset_size,
+                        personas=personas
+                    )
+                    
+                    all_qa_pairs = df.to_dict('records')
+                    chunks = chunked_docs  # For return value
+                    ragas_success = True
+                    logger.info(f"Successfully generated {len(all_qa_pairs)} QA pairs using RAGAS")
+                except (ValueError, ImportError) as ragas_error:
+                    # RAGAS failed with filter error or import error, fall back to LLM
+                    logger.warning(f"RAGAS generation failed: {ragas_error}, falling back to LLM generation")
+                    ragas_success = False
+                except Exception as ragas_error:
+                    # Other RAGAS errors, log and fall back
+                    logger.error(f"RAGAS error: {ragas_error}, falling back to LLM generation")
+                    ragas_success = False
+            
+            # Prepare output folder early for streaming writes
+            from ai.testset.output_manager import OutputManager
+            output_path = Path(OutputManager.map_path_for_docker(output_folder))
+            
+            # Handle Docker paths
+            import os
+            is_docker = os.path.exists('/app') and os.path.isdir('/app')
+            if str(output_path).startswith('/app/') and not is_docker:
+                relative_path = str(output_path).replace('/app/', '')
+                current_dir = Path.cwd()
+                project_root = current_dir
+                if (current_dir / "outputs").exists():
+                    project_root = current_dir
+                else:
+                    for parent in current_dir.parents:
+                        if (parent / "outputs").exists():
+                            project_root = parent
+                            break
+                output_path = project_root / relative_path
+            
+            # Create output directory
+            output_path.mkdir(parents=True, exist_ok=True)
+            excel_path = output_path / "rag_testset.xlsx"
+            
+            # Use LLM generation if RAGAS not available or failed
+            if not ragas_success:
+                # Fallback to LLM-based generation with streaming writes
+                logger.info("Using LLM-based generation (RAGAS not available)")
+                all_qa_pairs = []
+                chunks = []
+                
+                import asyncio
+                from openpyxl import Workbook
+                from openpyxl.writer.excel import save_workbook
+                
+                # Initialize Excel file for streaming writes
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "QA Pairs"
+                
+                # Write headers
+                headers = ["question", "answer", "context", "difficulty", "question_type", 
+                          "persona_name", "persona_id", "chunk_id", "chunk_size", "source_file"]
+                ws.append(headers)
+                
+                # Save initial Excel file
+                temp_excel = excel_path.with_suffix('.xlsx.tmp')
+                wb.save(temp_excel)
+                
+                total_chunks = len(chunked_docs)
+                processed_chunks = 0
+                total_qa_pairs_generated = 0  # Track total QA pairs generated
+                
+                async def process_single_chunk(i: int, chunk_doc: Document):
+                    """Process a single chunk asynchronously with streaming write."""
+                    nonlocal processed_chunks, total_qa_pairs_generated
+                    logger.info(f"Processing chunk {i+1}/{total_chunks}")
+                    chunk_text = chunk_doc.page_content if isinstance(chunk_doc, Document) else chunk_doc
+                    
+                    # Select different personas for each chunk if available
+                    chunk_personas = None
+                    if personas and len(personas) > 0:
+                        start_idx = (i * qa_per_chunk) % len(personas)
+                        chunk_personas = []
+                        for j in range(qa_per_chunk):
+                            persona_idx = (start_idx + j) % len(personas)
+                            chunk_personas.append(personas[persona_idx])
+                    
+                    # Use async version
+                    qa_pairs = await self.generate_qa_pairs_for_chunk(chunk_text, qa_per_chunk, language, chunk_personas)
+                    
+                    # Add chunk metadata and write to Excel immediately
+                    for pair in qa_pairs:
+                        pair["chunk_id"] = i + 1
+                        pair["chunk_size"] = len(chunk_text)
+                        pair["source_folder"] = documents_folder
+                        if isinstance(chunk_doc, Document) and chunk_doc.metadata:
+                            pair["source_file"] = chunk_doc.metadata.get("source", "unknown")
+                        
+                        # Write row to Excel immediately
+                        row = [
+                            pair.get("question", ""),
+                            pair.get("answer", ""),
+                            pair.get("context", ""),
+                            pair.get("difficulty", ""),
+                            pair.get("question_type", ""),
+                            pair.get("persona_name", ""),
+                            pair.get("persona_id", ""),
+                            pair.get("chunk_id", ""),
+                            pair.get("chunk_size", ""),
+                            pair.get("source_file", "")
+                        ]
+                        ws.append(row)
+                        
+                        # Save Excel file after each row (for real-time updates)
+                        wb.save(temp_excel)
+                        
+                        # Call progress callback if provided
+                        if progress_callback:
+                            try:
+                                total_qa_pairs_generated += 1
+                                await progress_callback({
+                                    "type": "qa_pair_generated",
+                                    "qa_pair": {
+                                        "question": pair.get("question", "")[:100] + "..." if len(pair.get("question", "")) > 100 else pair.get("question", ""),
+                                        "persona_name": pair.get("persona_name", ""),
+                                        "persona_id": pair.get("persona_id", "")
+                                    },
+                                    "total_generated": total_qa_pairs_generated,
+                                    "chunk_progress": f"{i+1}/{total_chunks}",
+                                    "progress_percent": int((i + 1) / total_chunks * 90) if total_chunks > 0 else 0
+                                })
+                            except Exception as e:
+                                logger.warning(f"Progress callback error: {e}")
+                    
+                    processed_chunks += 1
+                    chunks.append(chunk_text)
+                    all_qa_pairs.extend(qa_pairs)
+                    
+                    return chunk_text, qa_pairs
+                
+                # Process chunks concurrently (limit concurrency to avoid overwhelming the API)
+                semaphore = asyncio.Semaphore(5)  # Process up to 5 chunks concurrently
+                
+                async def process_with_semaphore(i: int, chunk_doc: Document):
+                    async with semaphore:
+                        return await process_single_chunk(i, chunk_doc)
+                
+                # Create tasks for all chunks
+                tasks = [process_with_semaphore(i, chunk_doc) for i, chunk_doc in enumerate(chunked_docs)]
+                
+                # Execute all tasks concurrently
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Process results (already processed in process_single_chunk, but check for errors)
+                for result in results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Error processing chunk: {result}")
+                        continue
+                
+                # Send final progress update (95% - saving file)
+                if progress_callback:
+                    try:
+                        await progress_callback({
+                            "type": "saving_file",
+                            "message": "正在保存 Excel 檔案...",
+                            "progress_percent": 95
+                        })
+                    except Exception as e:
+                        logger.warning(f"Progress callback error: {e}")
+                
+                # Final save: atomic rename
+                try:
+                    if excel_path.exists():
+                        excel_path.unlink()
+                    temp_excel.replace(excel_path)
+                    
+                    # Send completion progress (100%)
+                    if progress_callback:
+                        try:
+                            await progress_callback({
+                                "type": "file_saved",
+                                "message": "Excel 檔案已保存",
+                                "progress_percent": 100,
+                                "excel_path": str(excel_path)
+                            })
+                        except Exception as e:
+                            logger.warning(f"Progress callback error: {e}")
+                except Exception as write_error:
+                    logger.error(f"Error finalizing Excel file: {write_error}")
+                    raise
+            
+            # Prepare output folder
+            from ai.testset.output_manager import OutputManager
+            output_path = Path(OutputManager.map_path_for_docker(output_folder))
+            
+            # Handle Docker paths
+            import os
+            is_docker = os.path.exists('/app') and os.path.isdir('/app')
+            if str(output_path).startswith('/app/') and not is_docker:
+                relative_path = str(output_path).replace('/app/', '')
+                current_dir = Path.cwd()
+                project_root = current_dir
+                if (current_dir / "outputs").exists():
+                    project_root = current_dir
+                else:
+                    for parent in current_dir.parents:
+                        if (parent / "outputs").exists():
+                            project_root = parent
+                            break
+                output_path = project_root / relative_path
+            
+            # Create output directory
+            output_path.mkdir(parents=True, exist_ok=True)
+            
+            # Save to Excel using atomic write
+            excel_path = output_path / "rag_testset.xlsx"
+            temp_excel = excel_path.with_suffix('.xlsx.tmp')
+            df = pd.DataFrame(all_qa_pairs)
+            try:
+                # Write to temp file first
+                df.to_excel(temp_excel, index=False)
+                # Atomic rename
+                if excel_path.exists():
+                    excel_path.unlink()
+                temp_excel.replace(excel_path)
+            except Exception as write_error:
+                # Clean up temp file on error
+                if temp_excel.exists():
+                    try:
+                        temp_excel.unlink()
+                    except:
+                        pass
+                raise write_error
+            
+            logger.info(f"RAG testset saved to: {excel_path}")
+            logger.info(f"Generated {len(all_qa_pairs)} QA pairs from {len(chunks)} chunks")
+            
+            return {
+                "success": True,
+                "excel_path": str(excel_path),
+                "total_qa_pairs": len(all_qa_pairs),
+                "total_chunks": len(chunks),
+                "total_documents": len(documents),
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap,
+                "qa_per_chunk": qa_per_chunk,
+                "method": "ragas" if (self.use_ragas and RAGAS_AVAILABLE) else "llm"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating RAG testset: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
     def generate_testset(
         self, 
         documents_folder: str, 
@@ -343,9 +794,57 @@ Return only the JSON array.
         language: str = "繁體中文",
         personas: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
-        """Generate complete RAG testset."""
+        """Generate complete RAG testset using RAGAS or fallback to LLM (sync version for backward compatibility)."""
+        import asyncio
         try:
-            logger.info(f"Starting RAG testset generation from {documents_folder}")
+            # Try to get existing event loop
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If loop is running, we can't use asyncio.run()
+                    # Fall back to sync LLM generation
+                    logger.warning("Event loop is running, falling back to sync LLM generation")
+                    return self._generate_testset_sync(
+                        documents_folder, output_folder, chunk_size, chunk_overlap,
+                        qa_per_chunk, language, personas
+                    )
+                else:
+                    # Loop exists but not running, we can use it
+                    return loop.run_until_complete(
+                        self.generate_testset_async(
+                            documents_folder, output_folder, chunk_size, chunk_overlap,
+                            qa_per_chunk, language, personas
+                        )
+                    )
+            except RuntimeError:
+                # No event loop, create new one
+                return asyncio.run(
+                    self.generate_testset_async(
+                        documents_folder, output_folder, chunk_size, chunk_overlap,
+                        qa_per_chunk, language, personas
+                    )
+                )
+        except Exception as e:
+            logger.error(f"Error in generate_testset: {e}")
+            # Fallback to sync generation
+            return self._generate_testset_sync(
+                documents_folder, output_folder, chunk_size, chunk_overlap,
+                qa_per_chunk, language, personas
+            )
+    
+    def _generate_testset_sync(
+        self,
+        documents_folder: str,
+        output_folder: str,
+        chunk_size: int = 5000,
+        chunk_overlap: int = 200,
+        qa_per_chunk: int = 3,
+        language: str = "繁體中文",
+        personas: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """Synchronous fallback for testset generation (LLM only, no RAGAS)."""
+        try:
+            logger.info(f"Starting sync RAG testset generation from {documents_folder}")
             
             # Load documents
             documents = self.load_documents_from_folder(documents_folder)
@@ -353,109 +852,98 @@ Return only the JSON array.
                 raise ValueError("No documents found in the specified folder")
             
             # Chunk documents
-            chunks = self.chunk_documents(documents, chunk_size, chunk_overlap)
-            if not chunks:
+            chunked_docs = self.chunk_documents(documents, chunk_size, chunk_overlap)
+            if not chunked_docs:
                 raise ValueError("No chunks created from documents")
             
-            # Generate QA pairs for each chunk
+            logger.info(f"Loaded {len(documents)} documents, created {len(chunked_docs)} chunks")
+            logger.info("Using LLM-based generation (sync mode)")
+            
+            # Generate QA pairs using LLM
             all_qa_pairs = []
-            for i, chunk in enumerate(chunks):
-                logger.info(f"Processing chunk {i+1}/{len(chunks)}")
+            chunks = []
+            for i, chunk_doc in enumerate(chunked_docs):
+                logger.info(f"Processing chunk {i+1}/{len(chunked_docs)}")
+                chunk_text = chunk_doc.page_content if isinstance(chunk_doc, Document) else chunk_doc
+                chunks.append(chunk_text)
+                
                 # Select different personas for each chunk if available
                 chunk_personas = None
                 if personas and len(personas) > 0:
-                    # Rotate through personas for variety
                     start_idx = (i * qa_per_chunk) % len(personas)
                     chunk_personas = []
                     for j in range(qa_per_chunk):
                         persona_idx = (start_idx + j) % len(personas)
                         chunk_personas.append(personas[persona_idx])
                 
-                qa_pairs = self.generate_qa_pairs_for_chunk(chunk, qa_per_chunk, language, chunk_personas)
+                qa_pairs = self.generate_qa_pairs_for_chunk(chunk_text, qa_per_chunk, language, chunk_personas)
                 
                 # Add chunk metadata
                 for pair in qa_pairs:
                     pair["chunk_id"] = i + 1
-                    pair["chunk_size"] = len(chunk)
+                    pair["chunk_size"] = len(chunk_text)
                     pair["source_folder"] = documents_folder
+                    if isinstance(chunk_doc, Document) and chunk_doc.metadata:
+                        pair["source_file"] = chunk_doc.metadata.get("source", "unknown")
                 
                 all_qa_pairs.extend(qa_pairs)
             
-            # Create temporary output directory in /app/outputs
-            temp_output_path = Path("/app/outputs/rag_testset_temp")
-            temp_output_path.mkdir(parents=True, exist_ok=True)
+            # Prepare output folder
+            from ai.testset.output_manager import OutputManager
+            output_path = Path(OutputManager.map_path_for_docker(output_folder))
             
-            # Save to Excel in temp location
-            temp_excel_path = temp_output_path / "rag_testset.xlsx"
-            df = pd.DataFrame(all_qa_pairs)
-            df.to_excel(temp_excel_path, index=False)
-            
-            logger.info(f"RAG testset saved to temp location: {temp_excel_path}")
-            
-            # Move file from temp location to user-specified output folder
-            import shutil
-            
-            # Determine final target path
-            if output_folder.startswith('D:\\'):
-                # D:\workplace\project_management\my_github\ -> /app/host_github/
-                final_output_path = Path(output_folder.replace('D:\\workplace\\project_management\\my_github', '/app/host_github'))
-                final_output_path = Path(str(final_output_path).replace('\\', '/'))
-                logger.info(f"Mapped Windows output path to Docker path: {final_output_path}")
-            elif output_folder.startswith('D:'):
-                # D:\workplace\project_management\my_github\ -> /app/host_github/
-                final_output_path = Path(output_folder.replace('D:\\workplace\\project_management\\my_github', '/app/host_github'))
-                final_output_path = Path(str(final_output_path).replace('\\', '/'))
-                logger.info(f"Mapped Windows output path to Docker path: {final_output_path}")
-            elif os.path.isabs(output_folder):
-                # Unix absolute path - use as is
-                final_output_path = Path(output_folder)
-                logger.info(f"Unix absolute path used as is: {final_output_path}")
-            else:
-                # Relative path - map to host_github volume mount for Docker compatibility
-                # Handle both ./ and ../ relative paths
-                if output_folder.startswith('./'):
-                    # Remove ./ prefix
-                    relative_path = output_folder[2:]
-                elif output_folder.startswith('../'):
-                    # Keep ../ as is for parent directory access
-                    relative_path = output_folder
+            # Handle Docker paths
+            import os
+            is_docker = os.path.exists('/app') and os.path.isdir('/app')
+            if str(output_path).startswith('/app/') and not is_docker:
+                relative_path = str(output_path).replace('/app/', '')
+                current_dir = Path.cwd()
+                project_root = current_dir
+                if (current_dir / "outputs").exists():
+                    project_root = current_dir
                 else:
-                    # No prefix, use as is
-                    relative_path = output_folder
-                
-                final_output_path = Path('/app/host_github') / relative_path
-                logger.info(f"Relative path mapped to host_github: {output_folder} -> {final_output_path}")
+                    for parent in current_dir.parents:
+                        if (parent / "outputs").exists():
+                            project_root = parent
+                            break
+                output_path = project_root / relative_path
             
-            # Create final target directory
-            final_output_path.mkdir(parents=True, exist_ok=True)
+            # Create output directory
+            output_path.mkdir(parents=True, exist_ok=True)
             
-            # Move file from temp to final location
-            final_excel_path = final_output_path / "rag_testset.xlsx"
-            shutil.move(str(temp_excel_path), str(final_excel_path))
+            # Save to Excel using atomic write
+            excel_path = output_path / "rag_testset.xlsx"
+            temp_excel = excel_path.with_suffix('.xlsx.tmp')
+            df = pd.DataFrame(all_qa_pairs)
+            try:
+                # Write to temp file first
+                df.to_excel(temp_excel, index=False)
+                # Atomic rename
+                if excel_path.exists():
+                    excel_path.unlink()
+                temp_excel.replace(excel_path)
+            except Exception as write_error:
+                # Clean up temp file on error
+                if temp_excel.exists():
+                    try:
+                        temp_excel.unlink()
+                    except:
+                        pass
+                raise write_error
             
-            logger.info(f"RAG testset moved to final location: {final_excel_path}")
-            
-            # Verify file was moved successfully before cleanup
-            if final_excel_path.exists():
-                logger.info(f"File move verified: {final_excel_path}")
-                # Clean up temp files
-                shutil.rmtree(temp_output_path)
-                logger.info(f"Cleaned up temp directory: {temp_output_path}")
-            else:
-                logger.error(f"File move failed: {final_excel_path}")
-                raise FileNotFoundError(f"Failed to move file to {final_excel_path}")
-            
+            logger.info(f"RAG testset saved to: {excel_path}")
             logger.info(f"Generated {len(all_qa_pairs)} QA pairs from {len(chunks)} chunks")
             
             return {
                 "success": True,
-                "excel_path": str(final_excel_path),
+                "excel_path": str(excel_path),
                 "total_qa_pairs": len(all_qa_pairs),
                 "total_chunks": len(chunks),
                 "total_documents": len(documents),
                 "chunk_size": chunk_size,
                 "chunk_overlap": chunk_overlap,
-                "qa_per_chunk": qa_per_chunk
+                "qa_per_chunk": qa_per_chunk,
+                "method": "ragas" if (self.use_ragas and RAGAS_AVAILABLE) else "llm"
             }
             
         except Exception as e:

@@ -5,6 +5,9 @@ Generates comprehensive documents based on scenario descriptions and personas.
 These documents serve as the knowledge base for RAG systems.
 """
 
+# Import pydantic patch FIRST, before any langchain imports
+import ai.core.pydantic_patch  # noqa: F401
+
 import logging
 import json
 from typing import List, Dict, Any, Optional
@@ -56,7 +59,7 @@ class ScenarioDocumentGenerator:
         else:
             raise ValueError(f"Unsupported model provider: {self.model_provider}")
     
-    def generate_documents(
+    async def generate_documents(
         self,
         scenario_description: str,
         num_documents: int = 10,
@@ -135,7 +138,8 @@ class ScenarioDocumentGenerator:
 現在請生成{num_documents}份以使用者為核心的文件。只返回JSON，不要有其他文字。"""
 
         try:
-            response = self.llm.invoke(prompt)
+            # Use async invoke to avoid blocking the event loop
+            response = await self.llm.ainvoke(prompt)
             content = response.content.strip()
             
             # Clean up response
@@ -204,10 +208,23 @@ class ScenarioDocumentGenerator:
             Dictionary with paths and metadata
         """
         try:
-            # Create output folder structure
+            # Create output folder structure (thread-safe)
             output_path = Path(output_folder)
             docs_folder = output_path / "02_documents"
-            docs_folder.mkdir(parents=True, exist_ok=True)
+            max_retries = 3
+            for retry in range(max_retries):
+                try:
+                    docs_folder.mkdir(parents=True, exist_ok=True)
+                    if docs_folder.exists():
+                        break
+                    if retry < max_retries - 1:
+                        import time
+                        time.sleep(0.1 * (retry + 1))
+                except (PermissionError, OSError) as e:
+                    if retry == max_retries - 1:
+                        raise
+                    import time
+                    time.sleep(0.1 * (retry + 1))
             
             # Save individual document files
             document_files = []
@@ -235,16 +252,43 @@ class ScenarioDocumentGenerator:
 生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
                 
-                with open(txt_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
+                # Use atomic write for document files
+                temp_file = txt_file.with_suffix('.txt.tmp')
+                try:
+                    with open(temp_file, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    # Atomic rename
+                    if txt_file.exists():
+                        txt_file.unlink()
+                    temp_file.replace(txt_file)
+                except Exception as write_error:
+                    if temp_file.exists():
+                        try:
+                            temp_file.unlink()
+                        except:
+                            pass
+                    raise write_error
                 
                 document_files.append(str(txt_file))
                 logger.info(f"Saved document file: {txt_file}")
             
-            # Save metadata JSON
+            # Save metadata JSON using atomic write
             metadata_file = docs_folder / f"{scenario_name}_documents_metadata.json"
-            with open(metadata_file, 'w', encoding='utf-8') as f:
-                json.dump(documents, f, ensure_ascii=False, indent=2)
+            temp_metadata = metadata_file.with_suffix('.json.tmp')
+            try:
+                with open(temp_metadata, 'w', encoding='utf-8') as f:
+                    json.dump(documents, f, ensure_ascii=False, indent=2)
+                # Atomic rename
+                if metadata_file.exists():
+                    metadata_file.unlink()
+                temp_metadata.replace(metadata_file)
+            except Exception as write_error:
+                if temp_metadata.exists():
+                    try:
+                        temp_metadata.unlink()
+                    except:
+                        pass
+                raise write_error
             
             logger.info(f"Saved {len(documents)} document files to {docs_folder}")
             

@@ -6,12 +6,14 @@ This module creates rich, diverse user profiles that represent different potenti
 of a system, with comprehensive demographic, behavioral, and contextual details.
 """
 
+# Import pydantic patch FIRST, before any langchain imports
+import ai.core.pydantic_patch  # noqa: F401
+
 import logging
 import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
-import pandas as pd
 from langchain_openai import ChatOpenAI
 from configs.settings import settings
 
@@ -58,7 +60,7 @@ class PersonaGenerator:
         else:
             raise ValueError(f"Unsupported model provider: {self.model_provider}")
     
-    def generate_personas(
+    async def generate_personas(
         self,
         scenario_description: str,
         num_personas: int = 10,
@@ -83,9 +85,9 @@ class PersonaGenerator:
 使用情境：
 {scenario_description}
 
-請生成多樣化的用戶角色，每個角色都應該是獨特的、真實的、具體的，但不要過於複雜。
+請生成多樣化的用戶角色，每個角色都應該是獨特的、真實的、具體的，但保持簡潔。
 
-對於每個角色，請提供以下資訊（保持簡潔但完整）：
+對於每個角色，請提供以下資訊：
 
 1. **基本資訊**：
    - 姓名、年齡、性別、職業、教育程度、收入水平、居住地
@@ -96,19 +98,10 @@ class PersonaGenerator:
 3. **需求與痛點**：
    - 當前痛點（2-3個）、核心需求
 
-4. **行為模式**：
-   - 日常作息、科技使用習慣
+4. **溝通風格**：
+   - 表達清晰度
 
-5. **心理特徵**：
-   - 對該情境的態度
-
-6. **場景特定需求**：
-   - 根據情境的具體需求和偏好（這是最重要的部分）
-
-7. **溝通風格**：
-   - 問問題方式、語言特色
-
-請以JSON格式返回，確保每個角色都是完整且獨特的。保持回應簡潔，避免過度詳細的描述。
+請以JSON格式返回，確保每個角色都是完整且獨特的。保持回應簡潔。
 
 輸出格式：
 ```json
@@ -130,24 +123,12 @@ class PersonaGenerator:
       "housing": "住房詳情",
       "commute": "通勤詳情"
     }},
-    "needs_and_pain_points": {{
+    "needs_and_goals": {{
       "pain_points": ["痛點1", "痛點2", "痛點3"],
       "core_needs": ["需求1（最重要）", "需求2", "需求3"]
     }},
-    "behavior_patterns": {{
-      "daily_routine": "日常作息描述",
-      "tech_usage": "科技產品使用習慣"
-    }},
-    "psychology": {{
-      "attitude": "對該情境的態度和看法"
-    }},
-    "scenario_specific": {{
-      // 根據具體情境添加專屬欄位和需求
-      // 這是每個角色最重要的部分，要詳細描述
-    }},
     "communication_style": {{
-      "questioning_approach": "問問題的方式",
-      "language_characteristics": "語言特色和表達方式"
+      "clarity_level": "表達清晰度（例如：簡潔直接、詳細完整、口語化等）"
     }}
   }}
 ]
@@ -157,13 +138,13 @@ class PersonaGenerator:
 1. 每個角色都是真實可信的完整人物
 2. 角色之間有足夠的多樣性（不同年齡段、職業、需求等）
 3. 所有欄位都填寫完整，不要有空白或籠統的描述
-4. scenario_specific 部分要根據具體情境添加相關欄位
-5. 使用{language}語言
+4. 使用{language}語言
 
 現在請生成{num_personas}個詳細的用戶角色。只返回JSON，不要有其他文字。"""
 
         try:
-            response = self.llm.invoke(prompt)
+            # Use async invoke to avoid blocking the event loop
+            response = await self.llm.ainvoke(prompt)
             content = response.content.strip()
             
             # Clean up response
@@ -181,12 +162,16 @@ class PersonaGenerator:
             if not isinstance(personas, list):
                 raise ValueError("Response is not a list of personas")
             
-            # Validate personas
+            # Validate personas and normalize field names
             for i, persona in enumerate(personas):
                 if not persona.get("persona_id"):
                     persona["persona_id"] = f"persona_{i+1:03d}"
                 if not persona.get("persona_name"):
                     raise ValueError(f"Persona {i+1} missing persona_name")
+                
+                # Normalize: convert needs_and_pain_points to needs_and_goals for consistency
+                if "needs_and_pain_points" in persona and "needs_and_goals" not in persona:
+                    persona["needs_and_goals"] = persona.pop("needs_and_pain_points")
             
             logger.info(f"Successfully generated {len(personas)} personas (requested: {num_personas})")
             if len(personas) != num_personas:
@@ -207,12 +192,16 @@ class PersonaGenerator:
                 if not isinstance(personas, list):
                     raise ValueError("Fixed response is not a list of personas")
                 
-                # Validate personas
+                # Validate personas and normalize field names
                 for i, persona in enumerate(personas):
                     if not persona.get("persona_id"):
                         persona["persona_id"] = f"persona_{i+1:03d}"
                     if not persona.get("persona_name"):
                         raise ValueError(f"Persona {i+1} missing persona_name")
+                    
+                    # Normalize: convert needs_and_pain_points to needs_and_goals for consistency
+                    if "needs_and_pain_points" in persona and "needs_and_goals" not in persona:
+                        persona["needs_and_goals"] = persona.pop("needs_and_pain_points")
                 
                 logger.info(f"Successfully generated {len(personas)} personas after fixing (requested: {num_personas})")
                 if len(personas) != num_personas:
@@ -337,7 +326,7 @@ class PersonaGenerator:
         scenario_name: str = "scenario"
     ) -> Dict[str, Any]:
         """
-        Save personas to individual files and summary Excel.
+        Save personas to JSON file only (simplified format).
         
         Args:
             personas: List of persona dictionaries
@@ -351,40 +340,47 @@ class PersonaGenerator:
             # Create output folder structure
             output_path = Path(output_folder)
             personas_folder = output_path / "01_personas"
-            personas_folder.mkdir(parents=True, exist_ok=True)
+            # Thread-safe directory creation
+            max_retries = 3
+            for retry in range(max_retries):
+                try:
+                    personas_folder.mkdir(parents=True, exist_ok=True)
+                    if personas_folder.exists():
+                        break
+                    if retry < max_retries - 1:
+                        import time
+                        time.sleep(0.1 * (retry + 1))
+                except (PermissionError, OSError) as e:
+                    if retry == max_retries - 1:
+                        raise
+                    import time
+                    time.sleep(0.1 * (retry + 1))
             
-            # Save individual persona files
-            persona_files = []
-            for persona in personas:
-                persona_id = persona.get("persona_id", "unknown")
-                persona_name = persona.get("persona_name", "Unknown")
-                
-                # Create markdown file for each persona
-                md_content = self._format_persona_as_markdown(persona)
-                md_file = personas_folder / f"{persona_id}_{persona_name}.md"
-                
-                with open(md_file, 'w', encoding='utf-8') as f:
-                    f.write(md_content)
-                
-                persona_files.append(str(md_file))
-                logger.info(f"Saved persona file: {md_file}")
-            
-            # Save summary Excel
-            excel_file = personas_folder / f"{scenario_name}_personas_summary.xlsx"
-            self._save_personas_excel(personas, excel_file)
-            
-            # Save full JSON
+            # Save full JSON (only format we keep) using atomic write
             json_file = personas_folder / f"{scenario_name}_personas_full.json"
-            with open(json_file, 'w', encoding='utf-8') as f:
-                json.dump(personas, f, ensure_ascii=False, indent=2)
+            temp_file = json_file.with_suffix('.json.tmp')
+            try:
+                # Write to temp file first
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    json.dump(personas, f, ensure_ascii=False, indent=2)
+                # Atomic rename
+                if json_file.exists():
+                    json_file.unlink()
+                temp_file.replace(json_file)
+            except Exception as write_error:
+                # Clean up temp file on error
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink()
+                    except:
+                        pass
+                raise write_error
             
-            logger.info(f"Saved {len(personas)} persona files to {personas_folder}")
+            logger.info(f"Saved {len(personas)} personas to JSON: {json_file}")
             
             return {
                 "success": True,
                 "personas_folder": str(personas_folder),
-                "persona_files": persona_files,
-                "excel_file": str(excel_file),
                 "json_file": str(json_file),
                 "total_personas": len(personas)
             }
@@ -395,134 +391,4 @@ class PersonaGenerator:
                 "success": False,
                 "error": str(e)
             }
-    
-    def _format_persona_as_markdown(self, persona: Dict[str, Any]) -> str:
-        """Format persona as a readable markdown document."""
-        md = f"""# {persona.get('persona_name', 'Unknown Persona')}
-
-## 角色ID
-{persona.get('persona_id', 'N/A')}
-
-## 基本資訊
-- **年齡**: {persona.get('basic_info', {}).get('age', 'N/A')}
-- **性別**: {persona.get('basic_info', {}).get('gender', 'N/A')}
-- **職業**: {persona.get('basic_info', {}).get('occupation', 'N/A')}
-- **教育程度**: {persona.get('basic_info', {}).get('education', 'N/A')}
-- **收入水平**: {persona.get('basic_info', {}).get('income_level', 'N/A')}
-- **居住地**: {persona.get('basic_info', {}).get('location', 'N/A')}
-
-## 生活狀態
-- **婚姻狀況**: {persona.get('life_status', {}).get('marital_status', 'N/A')}
-- **家庭成員**: {persona.get('life_status', {}).get('family_members', 'N/A')}
-- **寵物**: {persona.get('life_status', {}).get('pets', 'N/A')}
-- **住房**: {persona.get('life_status', {}).get('housing', 'N/A')}
-- **通勤**: {persona.get('life_status', {}).get('commute', 'N/A')}
-- **工作地點**: {persona.get('life_status', {}).get('work_location', 'N/A')}
-
-## 需求與目標
-
-### 痛點
-"""
-        for pain_point in persona.get('needs_and_goals', {}).get('pain_points', []):
-            md += f"- {pain_point}\n"
-        
-        md += "\n### 核心需求\n"
-        for need in persona.get('needs_and_goals', {}).get('core_needs', []):
-            md += f"- {need}\n"
-        
-        md += "\n### 短期目標\n"
-        for goal in persona.get('needs_and_goals', {}).get('short_term_goals', []):
-            md += f"- {goal}\n"
-        
-        md += "\n### 長期目標\n"
-        for goal in persona.get('needs_and_goals', {}).get('long_term_goals', []):
-            md += f"- {goal}\n"
-        
-        md += f"\n### 預算範圍\n{persona.get('needs_and_goals', {}).get('budget_range', 'N/A')}\n"
-        
-        md += "\n### 決策標準\n"
-        for criterion in persona.get('needs_and_goals', {}).get('decision_criteria', []):
-            md += f"- {criterion}\n"
-        
-        md += f"""
-## 行為模式
-- **日常作息**: {persona.get('behavior_patterns', {}).get('daily_routine', 'N/A')}
-- **科技使用**: {persona.get('behavior_patterns', {}).get('tech_usage', 'N/A')}
-- **資訊搜尋**: {persona.get('behavior_patterns', {}).get('info_seeking', 'N/A')}
-- **決策風格**: {persona.get('behavior_patterns', {}).get('decision_style', 'N/A')}
-- **社交媒體**: {persona.get('behavior_patterns', {}).get('social_media', 'N/A')}
-- **溝通偏好**: {persona.get('behavior_patterns', {}).get('communication_preference', 'N/A')}
-
-## 心理特徵
-
-### 個性特點
-"""
-        for trait in persona.get('psychology', {}).get('personality_traits', []):
-            md += f"- {trait}\n"
-        
-        md += "\n### 價值觀\n"
-        for value in persona.get('psychology', {}).get('values', []):
-            md += f"- {value}\n"
-        
-        md += f"""
-- **態度**: {persona.get('psychology', {}).get('attitude', 'N/A')}
-- **擔憂**: {', '.join(persona.get('psychology', {}).get('anxieties', []))}
-- **動機**: {persona.get('psychology', {}).get('motivation', 'N/A')}
-- **信任建立**: {persona.get('psychology', {}).get('trust_building', 'N/A')}
-
-## 情境專屬需求
-"""
-        scenario_specific = persona.get('scenario_specific', {})
-        for key, value in scenario_specific.items():
-            md += f"- **{key}**: {value}\n"
-        
-        md += f"""
-## 溝通風格
-- **提問方式**: {persona.get('communication_style', {}).get('questioning_approach', 'N/A')}
-- **語言特色**: {persona.get('communication_style', {}).get('language_characteristics', 'N/A')}
-- **常見疑問**: {persona.get('communication_style', {}).get('common_questions_type', 'N/A')}
-- **表達清晰度**: {persona.get('communication_style', {}).get('clarity_level', 'N/A')}
-
-## 使用場景
-- **典型使用時段**: {persona.get('usage_context', {}).get('typical_usage_time', 'N/A')}
-- **使用頻率**: {persona.get('usage_context', {}).get('usage_frequency', 'N/A')}
-- **使用環境**: {persona.get('usage_context', {}).get('usage_environment', 'N/A')}
-- **裝置偏好**: {persona.get('usage_context', {}).get('device_preference', 'N/A')}
-
----
-*Generated by LLM Evaluation Hub - Persona Generator*
-*Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
-"""
-        return md
-    
-    def _save_personas_excel(self, personas: List[Dict[str, Any]], excel_path: Path):
-        """Save personas summary to Excel file."""
-        # Flatten personas for Excel
-        rows = []
-        for persona in personas:
-            row = {
-                "persona_id": persona.get("persona_id", ""),
-                "persona_name": persona.get("persona_name", ""),
-                "age": persona.get("basic_info", {}).get("age", ""),
-                "gender": persona.get("basic_info", {}).get("gender", ""),
-                "occupation": persona.get("basic_info", {}).get("occupation", ""),
-                "education": persona.get("basic_info", {}).get("education", ""),
-                "income_level": persona.get("basic_info", {}).get("income_level", ""),
-                "location": persona.get("basic_info", {}).get("location", ""),
-                "marital_status": persona.get("life_status", {}).get("marital_status", ""),
-                "family_members": persona.get("life_status", {}).get("family_members", ""),
-                "pets": persona.get("life_status", {}).get("pets", ""),
-                "pain_points": ", ".join(persona.get("needs_and_goals", {}).get("pain_points", [])),
-                "core_needs": ", ".join(persona.get("needs_and_goals", {}).get("core_needs", [])),
-                "budget_range": persona.get("needs_and_goals", {}).get("budget_range", ""),
-                "decision_style": persona.get("behavior_patterns", {}).get("decision_style", ""),
-                "communication_preference": persona.get("behavior_patterns", {}).get("communication_preference", ""),
-                "personality_traits": ", ".join(persona.get("psychology", {}).get("personality_traits", [])),
-                "values": ", ".join(persona.get("psychology", {}).get("values", []))
-            }
-            rows.append(row)
-        
-        df = pd.DataFrame(rows)
-        df.to_excel(excel_path, index=False)
-        logger.info(f"Saved personas summary to Excel: {excel_path}")
 

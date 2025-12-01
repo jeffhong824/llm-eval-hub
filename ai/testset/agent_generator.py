@@ -127,11 +127,10 @@ class AgentTestsetGenerator:
             if personas and len(personas) > 0:
                 persona_context = "\n## 預定義用戶角色\n\n請使用以下真實用戶角色來生成任務場景。每個任務應該對應一個具體的角色，並反映該角色的背景、需求和最終目標：\n\n"
                 for i, persona in enumerate(personas[:num_tasks], 1):
-                    # Extract core information
+                    # Extract core information - support simplified persona structure
                     basic_info = persona.get('basic_info', {})
-                    needs_goals = persona.get('needs_and_goals', {})
-                    behavior = persona.get('behavior_patterns', {})
-                    psychology = persona.get('psychology', {})
+                    # Support both needs_and_goals and needs_and_pain_points for backward compatibility
+                    needs_goals = persona.get('needs_and_goals', {}) or persona.get('needs_and_pain_points', {})
                     comm_style = persona.get('communication_style', {})
                     
                     persona_context += f"""
@@ -141,32 +140,21 @@ class AgentTestsetGenerator:
 - ID: {persona.get('persona_id', 'N/A')}
 - 年齡: {basic_info.get('age', 'N/A')}
 - 職業: {basic_info.get('occupation', 'N/A')}
-- 背景: {basic_info.get('education', 'N/A')}
+- 教育程度: {basic_info.get('education', 'N/A')}
+- 居住地: {basic_info.get('location', 'N/A')}
 
-**核心需求和目標**:
+**生活狀態**:
+- 婚姻狀況: {persona.get('life_status', {}).get('marital_status', 'N/A')}
+- 家庭成員: {persona.get('life_status', {}).get('family_members', 'N/A')}
+- 住房狀況: {persona.get('life_status', {}).get('housing', 'N/A')}
+- 通勤方式: {persona.get('life_status', {}).get('commute', 'N/A')}
+
+**核心需求和痛點**:
 - 痛點: {', '.join(needs_goals.get('pain_points', [])[:3])}
 - 核心需求: {', '.join(needs_goals.get('core_needs', [])[:3])}
-- 短期目標: {', '.join(needs_goals.get('short_term_goals', [])[:2])}
-- 預算範圍: {needs_goals.get('budget_range', 'N/A')}
-- 決策標準: {', '.join(needs_goals.get('decision_criteria', [])[:3])}
-
-**行為模式**:
-- 決策風格: {behavior.get('decision_style', 'N/A')}
-- 資訊搜尋: {behavior.get('info_seeking', 'N/A')}
-- 溝通偏好: {behavior.get('communication_preference', 'N/A')}
-
-**心理特徵**:
-- 個性: {', '.join(psychology.get('personality_traits', [])[:3])}
-- 態度: {psychology.get('attitude', 'N/A')}
-- 動機: {psychology.get('motivation', 'N/A')}
-- 擔憂: {', '.join(psychology.get('anxieties', [])[:2])}
 
 **溝通風格**:
-- 提問方式: {comm_style.get('questioning_approach', 'N/A')}
-- 語言特色: {comm_style.get('language_characteristics', 'N/A')}
-
-**情境專屬資訊**:
-{json.dumps(persona.get('scenario_specific', {}), ensure_ascii=False, indent=2) if persona.get('scenario_specific') else 'N/A'}
+- 表達清晰度: {comm_style.get('clarity_level', 'N/A')}
 
 ---
 """

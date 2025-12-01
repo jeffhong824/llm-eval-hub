@@ -8,8 +8,11 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import pandas as pd
+import json
+import asyncio
 
 from ai.testset.simple_generator import SimpleTestsetGeneratorService, TestsetConfig, GeneratedTestset
 from ai.testset.rag_generator import RAGTestsetGenerator
@@ -705,7 +708,7 @@ async def generate_personas_from_scenario(request: GeneratePersonasRequest):
         )
         
         logger.info(f"Generating {request.num_personas} personas...")
-        personas = persona_generator.generate_personas(
+        personas = await persona_generator.generate_personas(
             scenario_description=request.scenario_description,
             num_personas=request.num_personas,
             language=request.language
@@ -730,10 +733,10 @@ async def generate_personas_from_scenario(request: GeneratePersonasRequest):
             "scenario_name": output_manager.scenario_name,
             "scenario_folder": str(output_manager.scenario_folder),
             "personas_folder": save_result["personas_folder"],
-            "excel_file": save_result["excel_file"],
             "json_file": save_result["json_file"],
             "total_personas": len(personas),
-            "personas_preview": personas[:3],  # Show first 3 personas
+            "personas": personas,  # Return all personas for editing
+            "personas_preview": personas,  # Show all personas
             "progress": 100
         }
         
@@ -764,7 +767,7 @@ async def generate_documents_from_scenario(request: GenerateDocumentsRequest):
             model_name=request.model_name
         )
         
-        documents = doc_generator.generate_documents(
+        documents = await doc_generator.generate_documents(
             scenario_description=request.scenario_description,
             num_documents=request.num_documents,
             language=request.language
@@ -788,7 +791,9 @@ async def generate_documents_from_scenario(request: GenerateDocumentsRequest):
             "documents_folder": save_result["documents_folder"],
             "metadata_file": save_result["metadata_file"],
             "total_documents": len(documents),
-            "documents_preview": [
+            "documents": documents,  # Return all documents for editing
+            "documents_preview": documents,  # Show all documents
+            "documents_preview_old": [
                 {"title": doc["title"], "category": doc["category"]}
                 for doc in documents[:5]
             ]
@@ -802,66 +807,176 @@ async def generate_documents_from_scenario(request: GenerateDocumentsRequest):
 @router.post("/workflow/generate-rag-testset")
 async def generate_rag_testset_with_personas(request: GenerateRAGTestsetWithPersonasRequest):
     """
-    Stage 3 (RAG): Generate RAG testset using documents and personas.
+    Stage 3 (RAG): Generate RAG testset using documents and personas with streaming progress.
     """
-    try:
-        logger.info(f"Starting RAG testset generation with personas")
-        
-        import json
-        from pathlib import Path
-        from ai.testset.rag_generator import RAGTestsetGenerator
-        from ai.testset.output_manager import OutputManager
-        
-        # Load personas
-        with open(request.personas_json_path, 'r', encoding='utf-8') as f:
-            personas = json.load(f)
-        
-        logger.info(f"Loaded {len(personas)} personas")
-        
-        # Initialize output manager
-        output_manager = OutputManager(request.output_folder, request.scenario_name)
-        output_manager.set_workflow_type("rag")
-        
-        # Generate RAG testset
-        generator = RAGTestsetGenerator(
-            model_provider=request.model_provider,
-            model_name=request.model_name
-        )
-        
-        # Get output folder for this stage
-        stage_folder = output_manager.get_stage_folder("rag_testset")
-        
-        result = generator.generate_testset(
-            documents_folder=request.documents_folder,
-            output_folder=str(stage_folder),
-            chunk_size=request.chunk_size,
-            chunk_overlap=request.chunk_overlap,
-            qa_per_chunk=request.qa_per_chunk,
-            language=request.language,
-            personas=personas
-        )
-        
-        if result["success"]:
-            # Mark stage complete
-            output_manager.mark_stage_complete("rag_testset", result)
+    async def event_generator():
+        """Generator function for Server-Sent Events."""
+        try:
+            import json
+            from pathlib import Path
+            from ai.testset.rag_generator import RAGTestsetGenerator
+            from ai.testset.output_manager import OutputManager
             
-            return {
-                "success": True,
-                "message": "RAG testset generated successfully with personas!",
-                "scenario_name": output_manager.scenario_name,
-                "scenario_folder": str(output_manager.scenario_folder),
-                "excel_path": result["excel_path"],
-                "total_qa_pairs": result["total_qa_pairs"],
-                "total_chunks": result["total_chunks"],
-                "total_documents": result["total_documents"],
-                "personas_used": len(personas)
-            }
-        else:
-            raise HTTPException(status_code=500, detail=result["error"])
+            # Map paths for Docker compatibility
+            personas_json_path = OutputManager.map_path_for_docker(request.personas_json_path)
+            documents_folder = OutputManager.map_path_for_docker(request.documents_folder)
             
-    except Exception as e:
-        logger.error(f"Error generating RAG testset: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+            # Load personas
+            logger.info(f"Loading personas from: {personas_json_path}")
+            try:
+                with open(personas_json_path, 'r', encoding='utf-8') as f:
+                    personas = json.load(f)
+                logger.info(f"Loaded {len(personas)} personas")
+            except FileNotFoundError:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Personas file not found: {personas_json_path}'})}\n\n"
+                return
+            except json.JSONDecodeError as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Invalid JSON format in personas file: {e}'})}\n\n"
+                return
+            
+            # Initialize output manager
+            output_manager = OutputManager(request.output_folder, request.scenario_name)
+            output_manager.set_workflow_type("rag")
+            
+            # Generate RAG testset
+            generator = RAGTestsetGenerator(
+                model_provider=request.model_provider,
+                model_name=request.model_name
+            )
+            
+            # Get output folder for this stage
+            stage_folder = output_manager.get_stage_folder("rag_testset")
+            
+            # Progress tracking queue for streaming updates
+            progress_queue = asyncio.Queue()
+            
+            # Progress callback for streaming updates
+            async def progress_callback(progress_data):
+                """Callback to send progress updates via queue."""
+                await progress_queue.put(progress_data)
+            
+            # Start generation task
+            async def generate_task():
+                """Background task to run generation."""
+                try:
+                    result = await generator.generate_testset_async(
+                        documents_folder=documents_folder,
+                        output_folder=str(stage_folder),
+                        chunk_size=request.chunk_size,
+                        chunk_overlap=request.chunk_overlap,
+                        qa_per_chunk=request.qa_per_chunk,
+                        language=request.language,
+                        personas=personas,
+                        progress_callback=progress_callback
+                    )
+                    await progress_queue.put({"type": "generation_complete", "result": result})
+                except Exception as e:
+                    await progress_queue.put({"type": "generation_error", "error": str(e)})
+            
+            # Generate RAG testset with streaming
+            logger.info(f"Generating testset from documents folder: {documents_folder}")
+            try:
+                # Send initial progress
+                yield f"data: {json.dumps({'type': 'start', 'message': '開始生成 QA Pairs...'})}\n\n"
+                
+                # Start generation in background
+                generation_task = asyncio.create_task(generate_task())
+                
+                # Stream progress updates
+                while True:
+                    try:
+                        # Wait for progress update with timeout
+                        progress_data = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
+                        
+                        if progress_data.get("type") == "generation_complete":
+                            result = progress_data.get("result")
+                            if not result.get("success", False):
+                                error_msg = result.get("error", "Unknown error occurred")
+                                yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                                break
+                            
+                            # Mark stage complete
+                            try:
+                                output_manager.mark_stage_complete("rag_testset", result)
+                            except Exception as e:
+                                logger.warning(f"Failed to mark stage complete: {e}, but testset was generated successfully")
+                            
+                            # Send final result
+                            yield f"data: {json.dumps({
+                                'type': 'complete',
+                                'success': True,
+                                'message': 'RAG testset generated successfully with personas!',
+                                'scenario_name': output_manager.scenario_name,
+                                'scenario_folder': str(output_manager.scenario_folder),
+                                'excel_path': result['excel_path'],
+                                'total_qa_pairs': result['total_qa_pairs'],
+                                'total_chunks': result['total_chunks'],
+                                'total_documents': result['total_documents'],
+                                'personas_used': len(personas),
+                                'method': result.get('method', 'llm')
+                            })}\n\n"
+                            break
+                            
+                        elif progress_data.get("type") == "generation_error":
+                            error_msg = progress_data.get("error", "Unknown error occurred")
+                            yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                            break
+                            
+                        else:
+                            # Send progress update
+                            yield f"data: {json.dumps(progress_data)}\n\n"
+                            
+                    except asyncio.TimeoutError:
+                        # Check if generation task is done
+                        if generation_task.done():
+                            break
+                        # Send heartbeat to keep connection alive
+                        yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                        continue
+                
+                if not result.get("success", False):
+                    error_msg = result.get("error", "Unknown error occurred")
+                    yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                    return
+                
+                # Mark stage complete
+                try:
+                    output_manager.mark_stage_complete("rag_testset", result)
+                except Exception as e:
+                    logger.warning(f"Failed to mark stage complete: {e}, but testset was generated successfully")
+                
+                # Send final result
+                yield f"data: {json.dumps({
+                    'type': 'complete',
+                    'success': True,
+                    'message': 'RAG testset generated successfully with personas!',
+                    'scenario_name': output_manager.scenario_name,
+                    'scenario_folder': str(output_manager.scenario_folder),
+                    'excel_path': result['excel_path'],
+                    'total_qa_pairs': result['total_qa_pairs'],
+                    'total_chunks': result['total_chunks'],
+                    'total_documents': result['total_documents'],
+                    'personas_used': len(personas),
+                    'method': result.get('method', 'llm')
+                })}\n\n"
+                
+            except Exception as e:
+                logger.error(f"Error generating testset: {e}", exc_info=True)
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Failed to generate testset: {str(e)}'})}\n\n"
+                
+        except Exception as e:
+            logger.error(f"Error in event generator: {str(e)}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Internal error: {str(e)}'})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @router.post("/workflow/generate-agent-testset")
@@ -951,6 +1066,7 @@ async def get_workflow_status(scenario_name: str, base_folder: str):
 class CheckExistingDataRequest(BaseModel):
     """Request model for checking existing data."""
     output_folder: str
+    scenario_name: Optional[str] = None  # Optional scenario name to check specific project
 
 
 @router.post("/workflow/check-existing-data")
@@ -960,36 +1076,119 @@ async def check_existing_data(request: CheckExistingDataRequest):
         import os
         import json
         import glob
+        from ai.testset.output_manager import OutputManager
         
         output_folder = request.output_folder
+        scenario_name = request.scenario_name  # Get scenario_name from request
         
-        # Check if the output_folder itself is a scenario folder (contains 01_personas)
-        direct_personas_folder = os.path.join(output_folder, "01_personas")
+        # Map path for Docker compatibility
+        output_folder = OutputManager.map_path_for_docker(output_folder)
         
-        if os.path.exists(direct_personas_folder):
-            # User provided a scenario folder directly
-            personas_folder = direct_personas_folder
-            scenario_folder = output_folder
-            scenario_name = os.path.basename(scenario_folder)
-        else:
-            # Look for personas folder in subdirectories
-            personas_folders = glob.glob(os.path.join(output_folder, "*/01_personas"))
+        # Handle Docker paths (/app/outputs/...) - map to local paths if not in Docker
+        import os
+        from pathlib import Path
+        
+        # Check if we're actually in Docker (check if /app exists and is accessible)
+        is_docker = os.path.exists('/app') and os.path.isdir('/app')
+        
+        # If path starts with /app/outputs but we're not in Docker, map to local
+        if output_folder.startswith('/app/outputs') and not is_docker:
+            # Extract the relative path after /app/outputs/
+            relative_path = output_folder.replace('/app/outputs', '').strip('/')
+            # Find project root
+            current_dir = Path.cwd()
+            project_root = current_dir
+            if (current_dir / "outputs").exists():
+                project_root = current_dir
+            else:
+                for parent in current_dir.parents:
+                    if (parent / "outputs").exists():
+                        project_root = parent
+                        break
+            # Build the mapped path
+            if relative_path:
+                output_folder = str(project_root / "outputs" / relative_path)
+            else:
+                output_folder = str(project_root / "outputs")
+            logger.info(f"Mapped Docker path to local: {request.output_folder} -> {output_folder}")
+        # Convert to absolute path if relative
+        elif not os.path.isabs(output_folder):
+            # Get the project root (assuming we're in the project directory)
+            current_dir = Path.cwd()
+            project_root = current_dir
+            # If outputs folder exists in current dir, use it
+            if (current_dir / "outputs").exists():
+                project_root = current_dir
+            else:
+                # Try parent directories
+                for parent in current_dir.parents:
+                    if (parent / "outputs").exists():
+                        project_root = parent
+                        break
             
-            if not personas_folders:
+            if output_folder.startswith('./'):
+                output_folder = str(project_root / output_folder[2:])
+            elif not os.path.isabs(output_folder):
+                output_folder = str(project_root / output_folder)
+        
+        logger.info(f"Checking existing data in: {output_folder} (absolute: {os.path.abspath(output_folder)})")
+        
+        # If scenario_name is provided, check that specific project folder
+        if scenario_name:
+            # Check specific scenario folder
+            scenario_folder = os.path.join(output_folder, scenario_name)
+            direct_personas_folder = os.path.join(scenario_folder, "01_personas")
+            logger.info(f"Checking specific scenario: {scenario_name} in {scenario_folder}")
+            logger.info(f"Checking direct personas folder: {direct_personas_folder} (exists: {os.path.exists(direct_personas_folder)})")
+            
+            if not os.path.exists(direct_personas_folder):
+                logger.warning(f"Scenario folder {scenario_folder} does not contain 01_personas")
                 return {
                     "has_personas": False,
                     "has_documents": False
                 }
             
-            # Use the most recent personas folder
-            personas_folder = max(personas_folders, key=os.path.getctime)
-            scenario_folder = os.path.dirname(personas_folder)
-            scenario_name = os.path.basename(scenario_folder)
+            personas_folder = direct_personas_folder
+            logger.info(f"Found scenario folder: {scenario_folder}, name: {scenario_name}")
+        else:
+            # Check if the output_folder itself is a scenario folder (contains 01_personas)
+            direct_personas_folder = os.path.join(output_folder, "01_personas")
+            logger.info(f"Checking direct personas folder: {direct_personas_folder} (exists: {os.path.exists(direct_personas_folder)})")
+            
+            if os.path.exists(direct_personas_folder):
+                # User provided a scenario folder directly
+                personas_folder = direct_personas_folder
+                scenario_folder = output_folder
+                scenario_name = os.path.basename(scenario_folder)
+                logger.info(f"Found scenario folder directly: {scenario_folder}, name: {scenario_name}")
+            else:
+                # Look for personas folder in subdirectories
+                search_pattern = os.path.join(output_folder, "*/01_personas")
+                logger.info(f"Searching for personas folders with pattern: {search_pattern}")
+                personas_folders = glob.glob(search_pattern)
+                logger.info(f"Found {len(personas_folders)} personas folders: {personas_folders}")
+                
+                if not personas_folders:
+                    logger.warning(f"No personas folders found in {output_folder}")
+                    return {
+                        "has_personas": False,
+                        "has_documents": False
+                    }
+                
+                # Use the most recent personas folder
+                personas_folder = max(personas_folders, key=os.path.getctime)
+                scenario_folder = os.path.dirname(personas_folder)
+                scenario_name = os.path.basename(scenario_folder)
+                logger.info(f"Using most recent scenario folder: {scenario_folder}, name: {scenario_name}")
         
         # Find JSON file
-        json_files = glob.glob(os.path.join(personas_folder, "*_personas_full.json"))
+        json_pattern = os.path.join(personas_folder, "*_personas_full.json")
+        logger.info(f"Searching for JSON files with pattern: {json_pattern}")
+        json_files = glob.glob(json_pattern)
+        logger.info(f"Found {len(json_files)} JSON files: {json_files}")
         
         if not json_files:
+            logger.warning(f"No personas JSON files found in {personas_folder}")
             return {
                 "has_personas": False,
                 "has_documents": False
@@ -1002,20 +1201,43 @@ async def check_existing_data(request: CheckExistingDataRequest):
             personas = json.load(f)
             total_personas = len(personas) if isinstance(personas, list) else 0
         
-        # Check for documents
+        # Check for documents folder and metadata JSON
         documents_folder = os.path.join(scenario_folder, "02_documents")
-        has_documents = os.path.exists(documents_folder) and os.path.isdir(documents_folder)
+        has_documents_folder = os.path.exists(documents_folder) and os.path.isdir(documents_folder)
+        
+        # Check for documents metadata JSON file
+        has_documents_json = False
+        documents_metadata_path = None
+        if has_documents_folder:
+            # Look for metadata JSON file
+            metadata_files = glob.glob(os.path.join(documents_folder, "*_documents_metadata.json"))
+            if metadata_files:
+                documents_metadata_path = metadata_files[0]
+                has_documents_json = True
+                # Verify JSON file is valid and has content
+                try:
+                    with open(documents_metadata_path, 'r', encoding='utf-8') as f:
+                        documents_metadata = json.load(f)
+                        if documents_metadata and len(documents_metadata.get('documents', [])) > 0:
+                            has_documents_json = True
+                        else:
+                            has_documents_json = False
+                except Exception:
+                    has_documents_json = False
         
         result = {
             "has_personas": True,
             "personas_json_path": personas_json_path,
             "scenario_name": scenario_name,
+            "scenario_folder": str(scenario_folder),
             "total_personas": total_personas,
-            "has_documents": has_documents
+            "has_documents": has_documents_json,  # Only true if JSON exists and has content
+            "has_documents_folder": has_documents_folder
         }
         
-        if has_documents:
+        if has_documents_json and documents_metadata_path:
             result["documents_folder"] = documents_folder
+            result["documents_metadata_path"] = documents_metadata_path
         
         return result
         
@@ -1092,6 +1314,123 @@ class CheckExistingTestsetRequest(BaseModel):
     output_folder: str
     scenario_name: str
     testset_type: str  # 'rag' or 'agent'
+
+
+@router.get("/workflow/list-output-folders")
+async def list_output_folders(base_path: str = "/app/outputs"):
+    """List all folders in the output directory."""
+    try:
+        import os
+        from pathlib import Path
+        
+        output_path = Path(base_path)
+        
+        if not output_path.exists():
+            return {"folders": []}
+        
+        # Get all directories
+        folders = []
+        for item in output_path.iterdir():
+            if item.is_dir():
+                folders.append({
+                    "name": item.name,
+                    "path": str(item),
+                    "created": os.path.getctime(item) if os.path.exists(item) else 0
+                })
+        
+        # Sort by creation time (newest first)
+        folders.sort(key=lambda x: x["created"], reverse=True)
+        
+        return {
+            "base_path": base_path,
+            "folders": [f["name"] for f in folders],
+            "full_paths": [f["path"] for f in folders]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing output folders: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workflow/load-personas")
+async def load_personas(json_path: str):
+    """Load personas from JSON file."""
+    try:
+        import json
+        
+        with open(json_path, 'r', encoding='utf-8') as f:
+            personas = json.load(f)
+        
+        return {
+            "success": True,
+            "personas": personas if isinstance(personas, list) else [],
+            "total": len(personas) if isinstance(personas, list) else 0
+        }
+        
+    except Exception as e:
+        logger.error(f"Error loading personas: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workflow/load-documents")
+async def load_documents(metadata_path: str):
+    """Load documents from metadata JSON file."""
+    try:
+        import json
+        
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        documents = metadata.get('documents', []) if isinstance(metadata, dict) else []
+        
+        return {
+            "success": True,
+            "documents": documents,
+            "total": len(documents)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error loading documents: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdatePersonasRequest(BaseModel):
+    """Request model for updating personas."""
+    json_path: str
+    personas: List[Dict[str, Any]]
+
+
+@router.post("/workflow/update-personas")
+async def update_personas(request: UpdatePersonasRequest):
+    """Update personas in JSON file after editing."""
+    try:
+        import json
+        from pathlib import Path
+        
+        json_path = Path(request.json_path)
+        
+        # Verify the file exists
+        if not json_path.exists():
+            raise HTTPException(status_code=404, detail=f"Personas file not found: {json_path}")
+        
+        # Save updated personas to JSON file
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(request.personas, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"Updated {len(request.personas)} personas in {json_path}")
+        
+        return {
+            "success": True,
+            "message": f"Successfully updated {len(request.personas)} personas",
+            "json_file": str(json_path),
+            "total_personas": len(request.personas)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating personas: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/workflow/check-existing-testset")
