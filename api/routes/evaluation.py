@@ -4,6 +4,9 @@ Evaluation API Routes
 Handles evaluation of RAG and Agent systems using external LLM APIs.
 """
 
+# Import pydantic patch FIRST, before any langchain imports
+import ai.core.pydantic_patch  # noqa: F401
+
 import logging
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks

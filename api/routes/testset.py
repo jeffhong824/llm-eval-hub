@@ -1,5 +1,8 @@
 """Testset generation API endpoints."""
 
+# Import pydantic patch FIRST, before any langchain imports
+import ai.core.pydantic_patch  # noqa: F401
+
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime

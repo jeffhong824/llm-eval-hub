@@ -4,6 +4,9 @@ RAG Testset Generator
 Generates RAG test sets from documents by chunking them and creating QA pairs.
 """
 
+# Import pydantic patch FIRST, before any langchain imports
+import ai.core.pydantic_patch  # noqa: F401
+
 import os
 import logging
 from typing import List, Dict, Any, Optional

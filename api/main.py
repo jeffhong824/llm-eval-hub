@@ -1,5 +1,9 @@
 """FastAPI main application."""
 
+# Import pydantic patch FIRST, before any other imports
+# This fixes Python 3.12 compatibility issues with langsmith/pydantic v1
+import ai.core.pydantic_patch  # noqa: F401
+
 import logging
 from contextlib import asynccontextmanager
 from typing import Dict, Any
