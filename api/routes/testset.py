@@ -1830,3 +1830,99 @@ async def check_existing_testset(request: CheckExistingTestsetRequest):
     except Exception as e:
         logger.error(f"Error checking existing testset: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class LoadTestsetRequest(BaseModel):
+    """Request model for loading testset Excel file."""
+    excel_path: str
+
+
+@router.post("/workflow/load-testset")
+async def load_testset(request: LoadTestsetRequest):
+    """Load testset Excel file and return as JSON for editing."""
+    try:
+        import pandas as pd
+        from pathlib import Path
+        from ai.testset.output_manager import OutputManager
+        
+        # Map path for Docker compatibility
+        excel_path = OutputManager.map_path_for_docker(request.excel_path)
+        excel_file = Path(excel_path)
+        
+        if not excel_file.exists():
+            raise HTTPException(status_code=404, detail=f"Testset file not found: {excel_path}")
+        
+        # Read Excel file
+        df = pd.read_excel(excel_file)
+        
+        # Convert DataFrame to list of dictionaries
+        qa_pairs = df.to_dict('records')
+        
+        return {
+            "success": True,
+            "excel_path": str(excel_file),
+            "qa_pairs": qa_pairs,
+            "total_qa_pairs": len(qa_pairs),
+            "columns": list(df.columns)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error loading testset: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load testset: {str(e)}")
+
+
+class UpdateTestsetRequest(BaseModel):
+    """Request model for updating testset Excel file."""
+    excel_path: str
+    qa_pairs: List[Dict[str, Any]]
+
+
+@router.post("/workflow/update-testset")
+async def update_testset(request: UpdateTestsetRequest):
+    """Update testset Excel file after editing."""
+    try:
+        import pandas as pd
+        from pathlib import Path
+        import uuid
+        from ai.testset.output_manager import OutputManager
+        
+        # Map path for Docker compatibility
+        excel_path = OutputManager.map_path_for_docker(request.excel_path)
+        excel_file = Path(excel_path)
+        
+        if not excel_file.exists():
+            raise HTTPException(status_code=404, detail=f"Testset file not found: {excel_path}")
+        
+        # Convert list of dictionaries to DataFrame
+        df = pd.DataFrame(request.qa_pairs)
+        
+        # Save to Excel using atomic write
+        temp_file = excel_file.with_suffix('.xlsx.tmp')
+        try:
+            df.to_excel(temp_file, index=False)
+            # Atomic rename
+            if excel_file.exists():
+                excel_file.unlink()
+            temp_file.replace(excel_file)
+        except Exception as write_error:
+            if temp_file.exists():
+                try:
+                    temp_file.unlink()
+                except:
+                    pass
+            raise write_error
+        
+        logger.info(f"Updated testset Excel file: {excel_file} ({len(request.qa_pairs)} QA pairs)")
+        
+        return {
+            "success": True,
+            "message": f"Successfully updated {len(request.qa_pairs)} QA pairs",
+            "excel_path": str(excel_file),
+            "total_qa_pairs": len(request.qa_pairs)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating testset: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update testset: {str(e)}")

@@ -367,9 +367,9 @@
                         <small>請詳細描述您的使用情境，包括目標用戶、主要功能、使用場景等。</small>
                     </div>
                     
-                    <div class="form-group">
+                        <div class="form-group">
                         <label for="scenario-name">專案名稱 *</label>
-                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <div style="display: flex; gap: 10px; align-items: center;">
                             <div style="flex: 1; position: relative;">
                                 <input type="text" id="scenario-name" required
                                     list="scenario-name-list"
@@ -384,9 +384,9 @@
                                 disabled
                                 style="white-space: nowrap;"
                                 title="請先輸入專案名稱才能檢查已有資料">
-                                檢查已有資料
-                            </button>
-                        </div>
+                                    檢查已有資料
+                                </button>
+                            </div>
                         <small>專案名稱是必填的。可從下拉選單選擇已存在的專案，或輸入新專案名稱。所有專案都儲存在 <code>/app/outputs/</code> 底下。</small>
                     </div>
                     
@@ -477,15 +477,7 @@
                 </div>
                 
                 <form id="rag-testset-form">
-                    <div class="form-group">
-                        <label for="rag-use-custom-docs">文件來源</label>
-                        <select id="rag-use-custom-docs" onchange="toggleRAGCustomDocsInput()">
-                            <option value="workflow" id="rag-workflow-docs-option">使用工作流程生成的文件 (未生成)</option>
-                            <option value="custom">使用自定義資料夾</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group" id="rag-custom-docs-input" style="display: none;">
+                    <div class="form-group" id="rag-custom-docs-input">
                         <label>上傳文件到專案資料夾</label>
                         <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
                             <input type="file" id="rag-file-upload" multiple accept=".txt,.md,.pdf,.json" style="flex: 1;">
@@ -499,7 +491,7 @@
                         <small>選擇文件上傳到專案的 02_documents 資料夾。支援 .txt, .md, .pdf, .json 格式。</small>
                     </div>
                     
-                    <div class="form-group" id="rag-documents-selection" style="display: none; margin-top: 20px;">
+                    <div class="form-group" id="rag-documents-selection" style="margin-top: 20px;">
                         <label>選擇要使用的文件（可多選）</label>
                         <div id="rag-documents-list" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background: #f9f9f9;">
                             <p style="color: #666; text-align: center; padding: 20px;">載入中...</p>
@@ -647,13 +639,13 @@
                     
                     <div class="form-group">
                         <label for="target-api-question-field">問題欄位名稱</label>
-                        <input type="text" id="target-api-question-field" value="question" placeholder="question">
+                        <input type="text" id="target-api-question-field" value="message" placeholder="message">
                         <small>API 請求 body 中問題的欄位名稱（例如：question, query, message）。</small>
                     </div>
                     
                     <div class="form-group">
                         <label for="target-api-response-field">回答欄位路徑</label>
-                        <input type="text" id="target-api-response-field" value="response" placeholder="response">
+                        <input type="text" id="target-api-response-field" value="textResponse" placeholder="textResponse">
                         <small>API 回應中答案的欄位路徑（例如：response, answer, data.message）。</small>
                     </div>
                     
@@ -877,7 +869,9 @@
             scenario_name: '',
             personas_json_path: '',
             documents_folder: '',
-            workflow_type: 'rag' // Always use RAG mode
+            workflow_type: 'rag', // Always use RAG mode
+            rag_testset_path: '', // Path to RAG testset Excel file
+            rag_testset_data: null // QA pairs data for editing
         };
         
         // Function to convert Mac local path to container path
@@ -1116,14 +1110,14 @@
                                         <span id="persona-name-${index}">${persona.persona_name || personaId}</span>
                                     </h4>
                                     <div style="display: flex; gap: 5px;">
-                                        <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
+                                    <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
                                             onclick="togglePersonaEdit(${index})" id="edit-btn-${index}">
                                             編輯
                                         </button>
                                         <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
                                             onclick="togglePersonaDetails(${index})" id="details-btn-${index}">
                                             顯示詳細
-                                        </button>
+                                    </button>
                                     </div>
                                 </div>
                                 
@@ -1282,6 +1276,16 @@
                 }
             }
             
+            showDocumentsWithEditInSection(documents, result, targetDiv);
+        }
+        
+        // Show documents with edit capability in a specific section
+        function showDocumentsWithEditInSection(documents, result, targetDiv) {
+            if (!targetDiv) {
+                console.error('Target div not provided for showDocumentsWithEditInSection');
+                return;
+            }
+            
             targetDiv.style.display = 'block';
             
             let documentCards = '';
@@ -1348,6 +1352,10 @@
             // Set innerHTML to the target div
             targetDiv.innerHTML = htmlContent;
             targetDiv.style.display = 'block';
+            
+            // Store documents in workflowState for editing
+            workflowState.documents = documents;
+            workflowState.documents_metadata_file = result.metadata_file;
             
             // Scroll to the documents section
             setTimeout(() => {
@@ -1455,18 +1463,12 @@
                 alert(`❌ 保存失敗：${error.message}`);
             }
         }
-        
+
         // Initialize RAG testset form when stage 1 is shown
         function initializeRAGTestsetForm() {
-            // Update documents folder option text
-            const workflowOption = document.getElementById('rag-workflow-docs-option');
-            if (workflowOption) {
-                workflowOption.textContent = `使用工作流程生成的文件 (${workflowState.documents_folder || '未生成'})`;
-            }
-            
-            // Load documents list if in custom mode
-            const useCustom = document.getElementById('rag-use-custom-docs')?.value === 'custom';
-            if (useCustom && workflowState.output_folder && workflowState.scenario_name) {
+            // Always use custom mode (project's 02_documents folder)
+            // Load documents list automatically
+            if (workflowState.output_folder && workflowState.scenario_name) {
                 loadRAGDocumentsList();
             }
             
@@ -1478,21 +1480,6 @@
             }
         }
 
-        // Toggle custom docs input for RAG
-        function toggleRAGCustomDocsInput() {
-            const useCustom = document.getElementById('rag-use-custom-docs').value === 'custom';
-            const customInput = document.getElementById('rag-custom-docs-input');
-            const selectionDiv = document.getElementById('rag-documents-selection');
-            
-            customInput.style.display = useCustom ? 'block' : 'none';
-            selectionDiv.style.display = useCustom ? 'block' : 'none';
-            
-            // Load documents list when switching to custom mode
-            if (useCustom && workflowState.output_folder && workflowState.scenario_name) {
-                loadRAGDocumentsList();
-            }
-        }
-        
         // Upload files to 02_documents folder
         async function uploadRAGFiles() {
             const fileInput = document.getElementById('rag-file-upload');
@@ -1707,48 +1694,44 @@
                 }
             }
             
-            // Determine documents folder and selected files
-            const useCustom = document.getElementById('rag-use-custom-docs').value === 'custom';
-            let documentsFolder = useCustom 
-                ? null  // Will use project's 02_documents folder
-                : workflowState.documents_folder;
-            
-            // If using custom, get selected files
+            // Always use project's 02_documents folder (custom mode)
+            let documentsFolder = null;
             let selected_files = null;
-            if (useCustom) {
-                selected_files = getSelectedRAGDocuments();
-                if (selected_files.length === 0) {
-                    alert('請至少選擇一個文件');
-                    return;
-                }
-                // Use project's 02_documents folder
-                // Use OutputManager to get the correct scenario folder path
-                if (workflowState.output_folder && workflowState.scenario_name) {
-                    // Get the correct scenario folder path from backend
-                    try {
-                        const pathResponse = await fetch('/api/v1/testset/workflow/get-scenario-folder', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                output_folder: workflowState.output_folder,
-                                scenario_name: workflowState.scenario_name
-                            })
-                        });
-                        const pathResult = await pathResponse.json();
-                        if (pathResult.success) {
-                            documentsFolder = `${pathResult.scenario_folder}/02_documents`;
-                        } else {
-                            throw new Error(pathResult.error || 'Failed to get scenario folder path');
-                        }
-                    } catch (error) {
-                        console.error('Error getting scenario folder path:', error);
-                        alert(`無法獲取專案資料夾路徑：${error.message}`);
-                        return;
+            
+            // Get selected files
+            selected_files = getSelectedRAGDocuments();
+            if (selected_files.length === 0) {
+                alert('請至少選擇一個文件');
+                return;
+            }
+            
+            // Use project's 02_documents folder
+            // Use OutputManager to get the correct scenario folder path
+            if (workflowState.output_folder && workflowState.scenario_name) {
+                // Get the correct scenario folder path from backend
+                try {
+                    const pathResponse = await fetch('/api/v1/testset/workflow/get-scenario-folder', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            output_folder: workflowState.output_folder,
+                            scenario_name: workflowState.scenario_name
+                        })
+                    });
+                    const pathResult = await pathResponse.json();
+                    if (pathResult.success) {
+                        documentsFolder = `${pathResult.scenario_folder}/02_documents`;
+                    } else {
+                        throw new Error(pathResult.error || 'Failed to get scenario folder path');
                     }
-                } else {
-                    alert('請先完成前面的步驟（生成角色和文件）');
+                } catch (error) {
+                    console.error('Error getting scenario folder path:', error);
+                    alert(`無法獲取專案資料夾路徑：${error.message}`);
                     return;
                 }
+            } else {
+                alert('請先完成前面的步驟（生成角色和文件）');
+                return;
             }
             
             const formData = {
@@ -1966,7 +1949,7 @@
                                     updateRAGProgress(100, '✅ Excel 檔案已保存');
                                 } else if (data.type === 'complete') {
                                     result = data;
-                                    updateRAGProgress(100, '✅ 完成');
+                    updateRAGProgress(100, '✅ 完成');
                                 } else if (data.type === 'error') {
                                     throw new Error(data.message || '生成失敗');
                                 }
@@ -1990,22 +1973,28 @@
                     const progressMessage = document.getElementById('rag-progress-message');
                     if (progressMessage) {
                         progressMessage.innerHTML = `
-                            <div class="alert alert-success">
+                        <div class="alert alert-success">
                                 ✅ 成功生成 QA Pairs Excel 檔案！
-                            </div>
-                            <h3>生成結果</h3>
+                        </div>
+                        <h3>生成結果</h3>
                             <p><strong>Excel 檔案路徑：</strong>${result.excel_path}</p>
-                            <p><strong>總 QA 對數：</strong>${result.total_qa_pairs}</p>
-                            <p><strong>文件分塊數：</strong>${result.total_chunks}</p>
-                            <p><strong>原始文件數：</strong>${result.total_documents}</p>
+                        <p><strong>總 QA 對數：</strong>${result.total_qa_pairs}</p>
+                        <p><strong>文件分塊數：</strong>${result.total_chunks}</p>
+                        <p><strong>原始文件數：</strong>${result.total_documents}</p>
                             <p><strong>使用的角色數：</strong>${result.personas_used || 'N/A'}</p>
                             <p><strong>生成方法：</strong>${result.method === 'ragas' ? 'RAGAS 框架' : 'LLM 生成'}</p>
-                            <div class="button-group" style="margin-top: 20px;">
+                            <div class="button-group" style="margin-top: 20px; display: flex; gap: 10px;">
+                                <button type="button" class="btn btn-secondary" onclick="editRAGTestsetExcel('${result.excel_path}')" style="padding: 12px 30px; font-size: 16px;">
+                                    ✏️ 編輯 Excel
+                                </button>
                                 <button type="button" class="btn btn-primary" onclick="goToStage(2)" style="padding: 12px 30px; font-size: 16px;">
                                     🚀 下一步：基於 Excel 進行平台評估
-                                </button>
+                            </button>
+                        </div>
+                            <div id="rag-testset-edit-section" style="display: none; margin-top: 20px;">
+                                <!-- Excel 編輯界面將顯示在這裡 -->
                             </div>
-                        `;
+                    `;
                     }
                 } else {
                     throw new Error(result.detail || result.message || '生成失敗');
@@ -2344,38 +2333,32 @@
                                     documentsSection.style.marginTop = '30px';
                                     personasResult.parentNode.insertBefore(documentsSection, personasResult.nextSibling);
                                     
-                                    // Temporarily set documents-result to the new section
-                                    const originalResultBox = document.getElementById('documents-result');
-                                    documentsSection.id = 'documents-result-temp';
-                                    showDocumentsWithEdit(documentsData.documents, docResult);
-                                    // Restore original
-                                    if (originalResultBox) {
-                                        documentsSection.id = 'existing-documents-section';
-                                    }
+                                    // Call showDocumentsWithEditInSection with the new section
+                                    showDocumentsWithEditInSection(documentsData.documents, docResult, documentsSection);
                                 }
                             }, 100);
                         }
                         
                         // Show info with option to proceed
                         const documentsInfo = documentsData ? `<p><strong>文件數量：</strong>${documentsData.total || 0}</p>` : '';
-                        infoDiv.innerHTML = `
-                            <div class="alert alert-success">
+                    infoDiv.innerHTML = `
+                        <div class="alert alert-success">
                                 ✅ 發現已存在的完整資料（角色 + 文件）！
-                                <p><strong>角色數量：</strong>${result.total_personas}</p>
+                            <p><strong>角色數量：</strong>${result.total_personas}</p>
                                 ${documentsInfo}
-                                <p><strong>情境名稱：</strong>${result.scenario_name || 'N/A'}</p>
+                            <p><strong>情境名稱：</strong>${result.scenario_name || 'N/A'}</p>
                                 <p><strong>專案資料夾：</strong>${result.scenario_folder || result.documents_folder}</p>
                                 <p style="margin-top: 10px; color: #666;">已載入資料，您可以編輯角色或文件，或直接跳到下一步。</p>
                                 <div class="button-group" style="margin-top: 15px; display: flex; gap: 10px;">
                                     <button type="button" class="btn btn-primary" onclick="goToStage(1)" style="flex: 1;">
                                         🚀 下一步：生成測試集
-                                    </button>
+                                </button>
                                     <button type="button" class="btn btn-secondary" onclick="document.getElementById('existing-data-info').style.display='none'" style="flex: 1;">
-                                        重新生成
-                                    </button>
-                                </div>
+                                    重新生成
+                                </button>
                             </div>
-                        `;
+                        </div>
+                    `;
                         // Ensure the info div is visible
                         infoDiv.style.display = 'block';
                     } catch (error) {
@@ -2657,8 +2640,11 @@
                             <p><strong>測試集檔案：</strong>${result.testset_path}</p>
                             <p><strong>QA 對數：</strong>${result.total_qa_pairs || 'N/A'}</p>
                             <div class="button-group" style="margin-top: 15px;">
-                                <button type="button" class="btn btn-primary" onclick="loadExistingRAGTestset(window._tempRAGTestsetPath)">
-                                    載入測試集並進入評估
+                                <button type="button" class="btn btn-primary" onclick="loadAndEditRAGTestset(window._tempRAGTestsetPath)" style="margin-right: 10px;">
+                                    ✏️ 載入並編輯測試集
+                                </button>
+                                <button type="button" class="btn btn-secondary" onclick="loadExistingRAGTestset(window._tempRAGTestsetPath)" style="margin-right: 10px;">
+                                    📊 載入測試集並進入評估
                                 </button>
                                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('rag-existing-testset-info').style.display='none'">
                                     重新生成
@@ -2693,6 +2679,236 @@
             console.log('Workflow state:', workflowState);
             goToStage(2); // Go to evaluation stage
             document.getElementById('rag-existing-testset-info').style.display = 'none';
+        }
+        
+        // Load and edit RAG testset Excel
+        async function loadAndEditRAGTestset(testsetPath) {
+            try {
+                const response = await fetch('/api/v1/testset/workflow/load-testset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ excel_path: testsetPath })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    workflowState.rag_testset_path = testsetPath;
+                    workflowState.rag_testset_data = result.qa_pairs;
+                    
+                    // Show Excel editing interface
+                    showRAGTestsetEdit(result.qa_pairs, testsetPath);
+                    document.getElementById('rag-existing-testset-info').style.display = 'none';
+                } else {
+                    throw new Error(result.detail || '載入失敗');
+                }
+            } catch (error) {
+                alert(`❌ 載入測試集失敗：${error.message}`);
+            }
+        }
+        
+        // Edit RAG testset Excel
+        async function editRAGTestsetExcel(excelPath) {
+            try {
+                const response = await fetch('/api/v1/testset/workflow/load-testset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ excel_path: excelPath })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    workflowState.rag_testset_path = excelPath;
+                    workflowState.rag_testset_data = result.qa_pairs;
+                    
+                    // Show Excel editing interface
+                    showRAGTestsetEdit(result.qa_pairs, excelPath);
+                } else {
+                    throw new Error(result.detail || '載入失敗');
+                }
+            } catch (error) {
+                alert(`❌ 載入測試集失敗：${error.message}`);
+            }
+        }
+        
+        // Show RAG testset Excel editing interface
+        function showRAGTestsetEdit(qaPairs, excelPath) {
+            const editSection = document.getElementById('rag-testset-edit-section');
+            if (!editSection) {
+                // Create edit section if it doesn't exist
+                const resultBox = document.getElementById('rag-testset-result');
+                if (resultBox) {
+                    const newSection = document.createElement('div');
+                    newSection.id = 'rag-testset-edit-section';
+                    resultBox.appendChild(newSection);
+                    showRAGTestsetEdit(qaPairs, excelPath);
+                    return;
+                }
+            }
+            
+            let qaPairsHtml = '';
+            qaPairs.forEach((pair, index) => {
+                qaPairsHtml += `
+                    <div id="qa-pair-${index}" style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 15px; background: #f9f9f9;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h4 style="margin: 0; color: #667eea;">QA Pair #${index + 1}</h4>
+                            <div style="display: flex; gap: 5px;">
+                                <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
+                                    onclick="toggleQAPairEdit(${index})" id="qa-edit-btn-${index}">
+                                    編輯
+                                </button>
+                                <button type="button" class="btn btn-danger" style="font-size: 12px; padding: 5px 10px;" 
+                                    onclick="deleteQAPair(${index})" id="qa-delete-btn-${index}">
+                                    刪除
+                                </button>
+                            </div>
+                        </div>
+                        <div id="qa-pair-summary-${index}">
+                            <p style="margin: 5px 0;"><strong>問題：</strong><span id="qa-question-${index}">${(pair.question || '').substring(0, 100)}${(pair.question || '').length > 100 ? '...' : ''}</span></p>
+                            <p style="margin: 5px 0;"><strong>答案：</strong><span id="qa-answer-${index}">${(pair.answer || '').substring(0, 100)}${(pair.answer || '').length > 100 ? '...' : ''}</span></p>
+                            <p style="margin: 5px 0;"><strong>角色：</strong><span id="qa-persona-${index}">${pair.persona_name || 'N/A'}</span></p>
+                            <p style="margin: 5px 0;"><strong>難度：</strong><span id="qa-difficulty-${index}">${pair.difficulty || 'N/A'}</span></p>
+                        </div>
+                        <div id="qa-pair-edit-${index}" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                            <textarea id="qa-pair-json-${index}" style="width: 100%; min-height: 300px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">${JSON.stringify(pair, null, 2)}</textarea>
+                            <div style="margin-top: 10px; display: flex; gap: 10px;">
+                                <button type="button" class="btn btn-primary" onclick="saveQAPairEdit(${index})">保存</button>
+                                <button type="button" class="btn btn-secondary" onclick="cancelQAPairEdit(${index})">取消</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            editSection.innerHTML = `
+                <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #2196f3;">
+                    <h4 style="margin: 0 0 10px 0; color: #1976d2;">✏️ 編輯 Excel 測試集</h4>
+                    <p style="margin: 5px 0;"><strong>檔案路徑：</strong>${excelPath}</p>
+                    <p style="margin: 5px 0;"><strong>總 QA 對數：</strong>${qaPairs.length}</p>
+                </div>
+                <h4 style="margin-top: 20px; margin-bottom: 15px;">所有 QA Pairs（共 ${qaPairs.length} 個）：</h4>
+                <p style="margin-bottom: 15px; color: #666;">您可以編輯每個 QA Pair 的詳細資訊，編輯後點擊「保存所有變更」按鈕。</p>
+                <div style="max-height: 600px; overflow-y: auto; margin-bottom: 20px;">
+                    ${qaPairsHtml}
+                </div>
+                <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffc107;">
+                    <strong>💡 提示：</strong> 編輯完成後，請點擊「保存所有變更」按鈕以更新 Excel 檔案。所有變更將在平台評估時使用。
+                </div>
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button type="button" class="btn btn-primary" onclick="saveAllRAGTestsetChanges()" style="padding: 12px 30px; font-size: 16px;">
+                        💾 保存所有變更
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('rag-testset-edit-section').style.display='none'" style="padding: 12px 30px; font-size: 16px;">
+                        取消編輯
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="goToStage(2)" style="padding: 12px 30px; font-size: 16px;">
+                        🚀 下一步：基於 Excel 進行平台評估
+                    </button>
+                </div>
+            `;
+            editSection.style.display = 'block';
+        }
+        
+        // Toggle QA pair edit mode
+        function toggleQAPairEdit(index) {
+            const editDiv = document.getElementById(`qa-pair-edit-${index}`);
+            const summaryDiv = document.getElementById(`qa-pair-summary-${index}`);
+            const editBtn = document.getElementById(`qa-edit-btn-${index}`);
+            
+            if (editDiv && editDiv.style.display === 'none') {
+                editDiv.style.display = 'block';
+                if (summaryDiv) summaryDiv.style.display = 'none';
+                if (editBtn) editBtn.textContent = '取消編輯';
+            } else if (editDiv) {
+                editDiv.style.display = 'none';
+                if (summaryDiv) summaryDiv.style.display = 'block';
+                if (editBtn) editBtn.textContent = '編輯';
+            }
+        }
+        
+        // Save QA pair edit
+        async function saveQAPairEdit(index) {
+            try {
+                const jsonText = document.getElementById(`qa-pair-json-${index}`).value;
+                const updatedPair = JSON.parse(jsonText);
+                
+                // Update workflowState
+                if (workflowState.rag_testset_data && workflowState.rag_testset_data[index]) {
+                    workflowState.rag_testset_data[index] = updatedPair;
+                }
+                
+                // Update display
+                const questionEl = document.getElementById(`qa-question-${index}`);
+                if (questionEl) questionEl.textContent = (updatedPair.question || '').substring(0, 100) + ((updatedPair.question || '').length > 100 ? '...' : '');
+                
+                const answerEl = document.getElementById(`qa-answer-${index}`);
+                if (answerEl) answerEl.textContent = (updatedPair.answer || '').substring(0, 100) + ((updatedPair.answer || '').length > 100 ? '...' : '');
+                
+                const personaEl = document.getElementById(`qa-persona-${index}`);
+                if (personaEl) personaEl.textContent = updatedPair.persona_name || 'N/A';
+                
+                const difficultyEl = document.getElementById(`qa-difficulty-${index}`);
+                if (difficultyEl) difficultyEl.textContent = updatedPair.difficulty || 'N/A';
+                
+                toggleQAPairEdit(index);
+                alert('✅ QA Pair 資訊已更新！（請點擊「保存所有變更」以保存到檔案）');
+            } catch (error) {
+                alert('❌ JSON 格式錯誤，請檢查輸入內容：' + error.message);
+            }
+        }
+        
+        // Cancel QA pair edit
+        function cancelQAPairEdit(index) {
+            if (workflowState.rag_testset_data && workflowState.rag_testset_data[index]) {
+                const originalPair = workflowState.rag_testset_data[index];
+                document.getElementById(`qa-pair-json-${index}`).value = JSON.stringify(originalPair, null, 2);
+            }
+            toggleQAPairEdit(index);
+        }
+        
+        // Delete QA pair
+        function deleteQAPair(index) {
+            if (confirm(`確定要刪除 QA Pair #${index + 1} 嗎？`)) {
+                if (workflowState.rag_testset_data) {
+                    workflowState.rag_testset_data.splice(index, 1);
+                    // Re-render the edit interface
+                    if (workflowState.rag_testset_path) {
+                        showRAGTestsetEdit(workflowState.rag_testset_data, workflowState.rag_testset_path);
+                    }
+                }
+            }
+        }
+        
+        // Save all RAG testset changes
+        async function saveAllRAGTestsetChanges() {
+            if (!workflowState.rag_testset_path || !workflowState.rag_testset_data) {
+                alert('⚠️ 沒有可保存的資料');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/v1/testset/workflow/update-testset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        excel_path: workflowState.rag_testset_path,
+                        qa_pairs: workflowState.rag_testset_data
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`✅ 成功保存 ${result.total_qa_pairs} 個 QA Pairs 到 Excel 檔案！`);
+                    // Optionally hide edit section
+                    // document.getElementById('rag-testset-edit-section').style.display = 'none';
+                } else {
+                    throw new Error(result.detail || '保存失敗');
+                }
+            } catch (error) {
+                alert(`❌ 保存失敗：${error.message}`);
+            }
         }
         
         // Handle RAG provider change - auto-detect models

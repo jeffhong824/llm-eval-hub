@@ -399,8 +399,8 @@ class WorkflowEvaluationRequest(BaseModel):
     target_api_method: str = "POST"
     target_api_key_header: Optional[str] = None
     target_api_key_value: Optional[str] = None
-    target_api_question_field: str = "question"
-    target_api_response_field: str = "response"
+    target_api_question_field: str = "message"
+    target_api_response_field: str = "textResponse"
     judge_model_provider: str = "openai"
     judge_model_name: str = "gpt-4-0613"
     # Dynamic API Keys for Judge LLM
