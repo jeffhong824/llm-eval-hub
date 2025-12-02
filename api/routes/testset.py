@@ -1391,16 +1391,22 @@ async def list_output_folders(base_path: str = "/app/outputs"):
     try:
         import os
         from pathlib import Path
+        from ai.testset.output_manager import OutputManager
         
-        output_path = Path(base_path)
+        # Map path for Docker compatibility
+        mapped_path = OutputManager.map_path_for_docker(base_path)
+        output_path = Path(mapped_path)
+        
+        logger.info(f"Listing folders in: {mapped_path} (original: {base_path})")
         
         if not output_path.exists():
-            return {"folders": []}
+            logger.warning(f"Output path does not exist: {mapped_path}")
+            return {"folders": [], "base_path": mapped_path}
         
         # Get all directories
         folders = []
         for item in output_path.iterdir():
-            if item.is_dir():
+            if item.is_dir() and not item.name.startswith('.'):
                 folders.append({
                     "name": item.name,
                     "path": str(item),
@@ -1410,14 +1416,16 @@ async def list_output_folders(base_path: str = "/app/outputs"):
         # Sort by creation time (newest first)
         folders.sort(key=lambda x: x["created"], reverse=True)
         
+        logger.info(f"Found {len(folders)} folders: {[f['name'] for f in folders]}")
+        
         return {
-            "base_path": base_path,
+            "base_path": mapped_path,
             "folders": [f["name"] for f in folders],
             "full_paths": [f["path"] for f in folders]
         }
         
     except Exception as e:
-        logger.error(f"Error listing output folders: {str(e)}")
+        logger.error(f"Error listing output folders: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1563,45 +1571,29 @@ async def update_documents(request: UpdateDocumentsRequest):
                     pass
             raise write_error
         
-        # Update individual document text files
+        # Update individual document JSON files (no longer saving .txt files)
         for doc in request.documents:
             doc_id = doc.get("document_id", "unknown")
             title = doc.get("title", "Untitled").replace("/", "_").replace("\\", "_")
-            txt_file = docs_folder / f"{doc_id}_{title}.txt"
+            json_file = docs_folder / f"{doc_id}_{title}.json"
             
-            # Format document content
-            content = f"""# {doc.get('title', 'Untitled')}
-
-分類: {doc.get('category', 'N/A')}
-目標受眾: {doc.get('target_audience', 'N/A')}
-複雜度: {doc.get('complexity_level', 'N/A')}
-關鍵詞: {', '.join(doc.get('keywords', []))}
-
----
-
-{doc.get('content', '')}
-
----
-文件ID: {doc_id}
-生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-"""
-            
-            # Use atomic write for document files
-            temp_file = txt_file.with_suffix('.txt.tmp')
+            # Use atomic write for document JSON files
+            temp_file = json_file.with_suffix('.json.tmp')
             try:
                 with open(temp_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
+                    json.dump(doc, f, ensure_ascii=False, indent=2)
                 # Atomic rename
-                if txt_file.exists():
-                    txt_file.unlink()
-                temp_file.replace(txt_file)
+                if json_file.exists():
+                    json_file.unlink()
+                temp_file.replace(json_file)
+                logger.info(f"Updated document JSON file: {json_file}")
             except Exception as write_error:
                 if temp_file.exists():
                     try:
                         temp_file.unlink()
                     except:
                         pass
-                logger.warning(f"Failed to update document file {txt_file}: {write_error}")
+                logger.warning(f"Failed to update document JSON file {json_file}: {write_error}")
         
         logger.info(f"Updated {len(request.documents)} documents in {metadata_file}")
         
@@ -1652,7 +1644,7 @@ async def upload_documents_to_project(
         
         for file in files:
             # Validate file type
-            if not file.filename.endswith(('.txt', '.md', '.pdf')):
+            if not file.filename.endswith(('.txt', '.md', '.pdf', '.json')):
                 logger.warning(f"Skipping unsupported file type: {file.filename}")
                 continue
             
@@ -1748,11 +1740,14 @@ async def list_documents_in_project(request: ListDocumentsRequest):
                 "message": "02_documents folder does not exist"
             }
         
-        # List all supported document files (.txt, .md, .pdf)
+        # List all supported document files (.txt, .md, .pdf, .json)
         files = []
-        supported_extensions = ['*.txt', '*.md', '*.pdf']
+        supported_extensions = ['*.txt', '*.md', '*.pdf', '*.json']
         for ext in supported_extensions:
             for file_path in docs_folder.glob(ext):
+                # Skip metadata JSON files (they contain lists of documents, not individual documents)
+                if file_path.name.endswith('_documents_metadata.json'):
+                    continue
                 try:
                     file_size = file_path.stat().st_size
                     files.append({

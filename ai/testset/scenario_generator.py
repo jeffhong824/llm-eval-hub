@@ -226,41 +226,24 @@ class ScenarioDocumentGenerator:
                     import time
                     time.sleep(0.1 * (retry + 1))
             
-            # Save individual document files
+            # Save individual document files as JSON (no longer saving .txt files)
             document_files = []
             for doc in documents:
                 doc_id = doc.get("document_id", "unknown")
                 title = doc.get("title", "Untitled").replace("/", "_").replace("\\", "_")
                 
-                # Create text file for each document
-                txt_file = docs_folder / f"{doc_id}_{title}.txt"
+                # Create JSON file for each document
+                json_file = docs_folder / f"{doc_id}_{title}.json"
                 
-                # Format document content
-                content = f"""# {doc.get('title', 'Untitled')}
-
-分類: {doc.get('category', 'N/A')}
-目標受眾: {doc.get('target_audience', 'N/A')}
-複雜度: {doc.get('complexity_level', 'N/A')}
-關鍵詞: {', '.join(doc.get('keywords', []))}
-
----
-
-{doc.get('content', '')}
-
----
-文件ID: {doc_id}
-生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-"""
-                
-                # Use atomic write for document files
-                temp_file = txt_file.with_suffix('.txt.tmp')
+                # Use atomic write for document JSON files
+                temp_file = json_file.with_suffix('.json.tmp')
                 try:
                     with open(temp_file, 'w', encoding='utf-8') as f:
-                        f.write(content)
+                        json.dump(doc, f, ensure_ascii=False, indent=2)
                     # Atomic rename
-                    if txt_file.exists():
-                        txt_file.unlink()
-                    temp_file.replace(txt_file)
+                    if json_file.exists():
+                        json_file.unlink()
+                    temp_file.replace(json_file)
                 except Exception as write_error:
                     if temp_file.exists():
                         try:
@@ -269,8 +252,8 @@ class ScenarioDocumentGenerator:
                             pass
                     raise write_error
                 
-                document_files.append(str(txt_file))
-                logger.info(f"Saved document file: {txt_file}")
+                document_files.append(str(json_file))
+                logger.info(f"Saved document JSON file: {json_file}")
             
             # Save metadata JSON using atomic write
             metadata_file = docs_folder / f"{scenario_name}_documents_metadata.json"

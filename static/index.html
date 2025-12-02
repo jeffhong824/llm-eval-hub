@@ -363,45 +363,31 @@
                     <div class="form-group">
                         <label for="scenario-description">使用情境描述 *</label>
                         <textarea id="scenario-description" required 
-                            placeholder="例如：一個房地產媒合平台，連接購屋者和賣屋者。購屋者可以搜尋符合需求的房屋，賣屋者可以上架房屋資訊..."></textarea>
+                            placeholder="例如：一個通用型 LLM 平台，回答使用者問題基於 System Prompt 與 RAG"></textarea>
                         <small>請詳細描述您的使用情境，包括目標用戶、主要功能、使用場景等。</small>
                     </div>
                     
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="output-folder">輸出資料夾 *</label>
+                    <div class="form-group">
+                        <label for="scenario-name">專案名稱 *</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
                             <div style="flex: 1; position: relative;">
-                                <input type="text" id="output-folder" required 
-                                    list="output-folder-list"
-                                    placeholder="/app/outputs/my_scenario" 
-                                    value="/app/outputs/"
-                                    onblur="normalizeOutputFolderPath()"
-                                    oninput="handleOutputFolderInput()"
-                                    onfocus="loadOutputFolders()"
+                                <input type="text" id="scenario-name" required
+                                    list="scenario-name-list"
+                                    placeholder="例如：real_estate_platform"
+                                    oninput="updateCheckExistingButton()"
+                                    onfocus="loadProjectFolders()"
                                     style="width: 100%;">
-                                <datalist id="output-folder-list"></datalist>
+                                <datalist id="scenario-name-list"></datalist>
                             </div>
-                            <small>預設在 <code>/app/outputs/</code> 下，可從下拉選單選擇已存在的資料夾，或輸入新資料夾名稱。</small>
+                            <button type="button" class="btn btn-secondary" id="check-existing-btn" 
+                                onclick="checkExistingPersonas()" 
+                                disabled
+                                style="white-space: nowrap;"
+                                title="請先輸入專案名稱才能檢查已有資料">
+                                檢查已有資料
+                            </button>
                         </div>
-                        
-                        <div class="form-group">
-                            <label for="scenario-name">專案名稱（選填）</label>
-                            <div style="display: flex; gap: 10px; align-items: center;">
-                                <div style="flex: 1; position: relative;">
-                                    <input type="text" id="scenario-name" 
-                                        placeholder="例如：real_estate_platform"
-                                        oninput="updateCheckExistingButton()">
-                                </div>
-                                <button type="button" class="btn btn-secondary" id="check-existing-btn" 
-                                    onclick="checkExistingPersonas()" 
-                                    disabled
-                                    style="white-space: nowrap;"
-                                    title="請先輸入專案名稱才能檢查已有資料">
-                                    檢查已有資料
-                                </button>
-                            </div>
-                            <small>留空則自動生成時間戳記名稱。輸入專案名稱後可點擊「檢查已有資料」來載入已存在的資料。</small>
-                        </div>
+                        <small>專案名稱是必填的。可從下拉選單選擇已存在的專案，或輸入新專案名稱。所有專案都儲存在 <code>/app/outputs/</code> 底下。</small>
                     </div>
                     
                     <div id="existing-data-info" class="alert alert-info" style="display: none; margin-top: 20px;">
@@ -502,7 +488,7 @@
                     <div class="form-group" id="rag-custom-docs-input" style="display: none;">
                         <label>上傳文件到專案資料夾</label>
                         <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
-                            <input type="file" id="rag-file-upload" multiple accept=".txt,.md,.pdf" style="flex: 1;">
+                            <input type="file" id="rag-file-upload" multiple accept=".txt,.md,.pdf,.json" style="flex: 1;">
                             <button type="button" class="btn btn-secondary" onclick="uploadRAGFiles()" style="white-space: nowrap;">
                                 📤 上傳文件
                             </button>
@@ -510,7 +496,7 @@
                         <div id="rag-upload-status" class="alert alert-info" style="display: none; margin-top: 10px;">
                             <!-- 上傳狀態將顯示在這裡 -->
                         </div>
-                        <small>選擇文件上傳到專案的 02_documents 資料夾。支援 .txt, .md, .pdf 格式。</small>
+                        <small>選擇文件上傳到專案的 02_documents 資料夾。支援 .txt, .md, .pdf, .json 格式。</small>
                     </div>
                     
                     <div class="form-group" id="rag-documents-selection" style="display: none; margin-top: 20px;">
@@ -1024,11 +1010,17 @@
                 </div>
             `;
             
+            const scenarioNameInput = document.getElementById('scenario-name');
+            if (!scenarioNameInput || !scenarioNameInput.value || scenarioNameInput.value.trim() === '') {
+                alert('請輸入專案名稱');
+                return;
+            }
+            
             const formData = {
                 scenario_description: document.getElementById('scenario-description').value,
                 num_personas: parseInt(document.getElementById('num-personas').value),
-                output_folder: document.getElementById('output-folder').value,
-                scenario_name: document.getElementById('scenario-name')?.value || null,  // Optional, auto-generated if empty
+                output_folder: '/app/outputs',  // Fixed to /app/outputs
+                scenario_name: scenarioNameInput.value.trim(),
                 model_provider: document.getElementById('persona-model-provider').value,
                 model_name: document.getElementById('persona-model-name').value,
                 language: '繁體中文'
@@ -1036,7 +1028,7 @@
             
             // Store in state
             workflowState.scenario_description = formData.scenario_description;
-            workflowState.output_folder = formData.output_folder;
+            workflowState.output_folder = '/app/outputs';  // Fixed to /app/outputs
             workflowState.scenario_name = formData.scenario_name;
             
             // Helper to add log
@@ -2157,33 +2149,36 @@
         }
         
         // Load output folders for dropdown
-        async function loadOutputFolders() {
+        // Load project folders (scenario names) from outputs directory
+        async function loadProjectFolders() {
             try {
                 const response = await fetch('/api/v1/testset/workflow/list-output-folders?base_path=/app/outputs');
+                if (!response.ok) {
+                    console.error('Failed to load project folders:', response.status, response.statusText);
+                    return;
+                }
                 const result = await response.json();
                 
-                const datalist = document.getElementById('output-folder-list');
-                if (datalist && result.folders) {
+                console.log('Loaded project folders:', result);
+                
+                const datalist = document.getElementById('scenario-name-list');
+                if (datalist) {
                     datalist.innerHTML = '';
-                    result.folders.forEach(folder => {
-                        const option = document.createElement('option');
-                        option.value = `/app/outputs/${folder}`;
-                        datalist.appendChild(option);
-                    });
+                    if (result.folders && result.folders.length > 0) {
+                        result.folders.forEach(folder => {
+                            const option = document.createElement('option');
+                            option.value = folder;
+                            datalist.appendChild(option);
+                        });
+                        console.log(`Added ${result.folders.length} project folders to datalist`);
+                    } else {
+                        console.log('No project folders found');
+                    }
+                } else {
+                    console.error('Datalist element not found: scenario-name-list');
                 }
             } catch (error) {
-                console.error('Error loading output folders:', error);
-            }
-        }
-        
-        // Handle output folder input
-        function handleOutputFolderInput() {
-            const input = document.getElementById('output-folder');
-            if (input && !input.value.startsWith('/app/outputs/')) {
-                // Auto-prepend /app/outputs/ if not present
-                if (!input.value.startsWith('/app/')) {
-                    input.value = '/app/outputs/' + input.value.replace(/^\/+/, '');
-                }
+                console.error('Error loading project folders:', error);
             }
         }
         
@@ -2277,14 +2272,9 @@
         
         // Check for existing personas in the output folder
         async function checkExistingPersonas() {
-            const outputFolder = document.getElementById('output-folder').value;
+            const outputFolder = '/app/outputs';  // Fixed to /app/outputs
             const scenarioName = document.getElementById('scenario-name').value.trim();
             const infoDiv = document.getElementById('existing-data-info');
-            
-            if (!outputFolder) {
-                alert('請先輸入輸出資料夾路徑');
-                return;
-            }
             
             if (!scenarioName) {
                 alert('請先輸入專案名稱才能檢查已有資料');
@@ -2310,8 +2300,8 @@
                 if (result.has_personas && result.has_documents) {
                     // Both personas and documents exist with valid JSON - load and show results
                     workflowState.personas_json_path = result.personas_json_path;
-                    workflowState.scenario_name = result.scenario_name || 'existing_scenario';
-                    workflowState.output_folder = result.scenario_folder || outputFolder;
+                    workflowState.scenario_name = result.scenario_name || scenarioName;
+                    workflowState.output_folder = '/app/outputs';  // Fixed to /app/outputs
                     workflowState.documents_folder = result.documents_folder;
                     
                     // Load personas from JSON
@@ -3574,8 +3564,8 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Initialize check existing button state
             updateCheckExistingButton();
-            // Load output folders on page load
-            loadOutputFolders();
+            // Load project folders on page load
+            loadProjectFolders();
             // Auto-detect models for default provider (OpenAI) using .env keys
             setTimeout(() => {
                 autoDetectJudgeModels(true);  // true = use .env keys

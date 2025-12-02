@@ -159,6 +159,56 @@ class RAGTestsetGenerator:
                                     logger.warning(f"PyPDFLoader not available, skipping PDF file: {filename}")
                                 except Exception as e:
                                     logger.warning(f"Failed to load PDF file {filename}: {e}")
+                            elif filename.endswith('.json'):
+                                # Load JSON files (document metadata files)
+                                try:
+                                    import json
+                                    with open(file_path, 'r', encoding='utf-8') as f:
+                                        json_data = json.load(f)
+                                    
+                                    # Handle both single document dict and list of documents
+                                    if isinstance(json_data, list):
+                                        doc_list = json_data
+                                    elif isinstance(json_data, dict):
+                                        # If it's a single document or metadata file
+                                        if 'documents' in json_data:
+                                            doc_list = json_data['documents']
+                                        else:
+                                            doc_list = [json_data]
+                                    else:
+                                        logger.warning(f"Unexpected JSON structure in {filename}")
+                                        continue
+                                    
+                                    # Convert JSON documents to Document objects
+                                    for doc_dict in doc_list:
+                                        # Extract content from document
+                                        content = doc_dict.get('content', '')
+                                        if not content:
+                                            # Try to construct content from other fields
+                                            title = doc_dict.get('title', 'Untitled')
+                                            category = doc_dict.get('category', 'N/A')
+                                            content = f"# {title}\n\n分類: {category}\n\n{doc_dict.get('description', '')}"
+                                        
+                                        # Create Document object
+                                        from langchain_core.documents import Document
+                                        doc = Document(
+                                            page_content=content,
+                                            metadata={
+                                                "source": str(file_path),
+                                                "document_id": doc_dict.get('document_id', 'unknown'),
+                                                "title": doc_dict.get('title', 'Untitled'),
+                                                "category": doc_dict.get('category', 'N/A'),
+                                                "target_audience": doc_dict.get('target_audience', 'N/A'),
+                                                "complexity_level": doc_dict.get('complexity_level', 'N/A')
+                                            }
+                                        )
+                                        documents.append(doc)
+                                    
+                                    logger.info(f"Loaded .json file: {filename} ({len(doc_list)} documents)")
+                                except json.JSONDecodeError as e:
+                                    logger.warning(f"Invalid JSON in {filename}: {e}")
+                                except Exception as e:
+                                    logger.warning(f"Failed to load JSON file {filename}: {e}")
                             else:
                                 logger.warning(f"Unsupported file type: {filename}")
                         except Exception as e:
@@ -168,17 +218,80 @@ class RAGTestsetGenerator:
                 
                 logger.info(f"Loaded {len(documents)} documents from {len(selected_files)} selected files")
             else:
-                # Use DirectoryLoader to load only .txt files from the specified folder (non-recursive)
-                # Only load .txt files to avoid loading metadata JSON files and other non-document files
-                loader = DirectoryLoader(
-                    str(folder_path),
-                    glob="*.txt",  # Only load .txt files, non-recursive
-                    loader_cls=TextLoader,
-                    loader_kwargs={"encoding": "utf-8"},
-                    silent_errors=True
-                )
+                # Load all supported files (.txt, .md, .pdf, .json) from the specified folder (non-recursive)
+                documents = []
                 
-                documents = loader.load()
+                # Load .txt and .md files
+                for ext in ['*.txt', '*.md']:
+                    loader = DirectoryLoader(
+                        str(folder_path),
+                        glob=ext,
+                        loader_cls=TextLoader,
+                        loader_kwargs={"encoding": "utf-8"},
+                        silent_errors=True
+                    )
+                    docs = loader.load()
+                    documents.extend(docs)
+                
+                # Load .pdf files
+                try:
+                    from langchain_community.document_loaders import PyPDFLoader
+                    for pdf_file in folder_path.glob("*.pdf"):
+                        try:
+                            loader = PyPDFLoader(str(pdf_file))
+                            docs = loader.load()
+                            documents.extend(docs)
+                        except Exception as e:
+                            logger.warning(f"Failed to load PDF {pdf_file.name}: {e}")
+                except ImportError:
+                    logger.warning("PyPDFLoader not available, skipping PDF files")
+                
+                # Load .json files (document metadata files)
+                for json_file in folder_path.glob("*.json"):
+                    # Skip metadata files that contain lists of documents
+                    if json_file.name.endswith('_documents_metadata.json'):
+                        try:
+                            import json
+                            with open(json_file, 'r', encoding='utf-8') as f:
+                                json_data = json.load(f)
+                            
+                            # Handle both single document dict and list of documents
+                            if isinstance(json_data, list):
+                                doc_list = json_data
+                            elif isinstance(json_data, dict):
+                                if 'documents' in json_data:
+                                    doc_list = json_data['documents']
+                                else:
+                                    doc_list = [json_data]
+                            else:
+                                continue
+                            
+                            # Convert JSON documents to Document objects
+                            for doc_dict in doc_list:
+                                content = doc_dict.get('content', '')
+                                if not content:
+                                    title = doc_dict.get('title', 'Untitled')
+                                    category = doc_dict.get('category', 'N/A')
+                                    content = f"# {title}\n\n分類: {category}\n\n{doc_dict.get('description', '')}"
+                                
+                                from langchain_core.documents import Document
+                                doc = Document(
+                                    page_content=content,
+                                    metadata={
+                                        "source": str(json_file),
+                                        "document_id": doc_dict.get('document_id', 'unknown'),
+                                        "title": doc_dict.get('title', 'Untitled'),
+                                        "category": doc_dict.get('category', 'N/A'),
+                                        "target_audience": doc_dict.get('target_audience', 'N/A'),
+                                        "complexity_level": doc_dict.get('complexity_level', 'N/A')
+                                    }
+                                )
+                                documents.append(doc)
+                            
+                            logger.info(f"Loaded JSON metadata file: {json_file.name} ({len(doc_list)} documents)")
+                        except Exception as e:
+                            logger.warning(f"Failed to load JSON file {json_file.name}: {e}")
+                
                 logger.info(f"Loaded {len(documents)} documents from {folder_path}")
             
             # Log which files were loaded for debugging
