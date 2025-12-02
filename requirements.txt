@@ -36,6 +36,7 @@ python-multipart==0.0.6
 jinja2==3.1.2
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+pypdf>=3.0.0  # For PDF file loading support
 
 # Development
 pytest==7.4.3

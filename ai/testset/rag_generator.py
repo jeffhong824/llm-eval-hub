@@ -89,8 +89,17 @@ class RAGTestsetGenerator:
             # Fallback to OpenAI embeddings
             return OpenAIEmbeddings(api_key=settings.openai_api_key)
     
-    def load_documents_from_folder(self, folder_path: str) -> List[Document]:
-        """Load all documents from a folder and return as LangChain Documents."""
+    def load_documents_from_folder(self, folder_path: str, selected_files: Optional[List[str]] = None) -> List[Document]:
+        """
+        Load documents from a folder and return as LangChain Documents.
+        
+        Args:
+            folder_path: Path to the documents folder
+            selected_files: Optional list of file names to load. If None, load all .txt files.
+        
+        Returns:
+            List of Document objects
+        """
         try:
             from ai.testset.output_manager import OutputManager
             
@@ -120,18 +129,57 @@ class RAGTestsetGenerator:
             if not folder_path.exists():
                 raise FileNotFoundError(f"Folder not found: {folder_path}")
             
-            # Use DirectoryLoader to load only .txt files from the specified folder (non-recursive)
-            # Only load .txt files to avoid loading metadata JSON files and other non-document files
-            loader = DirectoryLoader(
-                str(folder_path),
-                glob="*.txt",  # Only load .txt files, non-recursive
-                loader_cls=TextLoader,
-                loader_kwargs={"encoding": "utf-8"},
-                silent_errors=True
-            )
-            
-            documents = loader.load()
-            logger.info(f"Loaded {len(documents)} documents from {folder_path}")
+            # If selected_files is provided, only load those specific files
+            if selected_files:
+                documents = []
+                for filename in selected_files:
+                    file_path = folder_path / filename
+                    if file_path.exists():
+                        try:
+                            # Handle different file types
+                            if filename.endswith('.txt'):
+                                loader = TextLoader(str(file_path), encoding="utf-8")
+                                docs = loader.load()
+                                documents.extend(docs)
+                                logger.info(f"Loaded .txt file: {filename}")
+                            elif filename.endswith('.md'):
+                                loader = TextLoader(str(file_path), encoding="utf-8")
+                                docs = loader.load()
+                                documents.extend(docs)
+                                logger.info(f"Loaded .md file: {filename}")
+                            elif filename.endswith('.pdf'):
+                                # Try to load PDF files using PyPDFLoader if available
+                                try:
+                                    from langchain_community.document_loaders import PyPDFLoader
+                                    loader = PyPDFLoader(str(file_path))
+                                    docs = loader.load()
+                                    documents.extend(docs)
+                                    logger.info(f"Loaded .pdf file: {filename}")
+                                except ImportError:
+                                    logger.warning(f"PyPDFLoader not available, skipping PDF file: {filename}")
+                                except Exception as e:
+                                    logger.warning(f"Failed to load PDF file {filename}: {e}")
+                            else:
+                                logger.warning(f"Unsupported file type: {filename}")
+                        except Exception as e:
+                            logger.warning(f"Failed to load {filename}: {e}")
+                    else:
+                        logger.warning(f"File not found: {filename}")
+                
+                logger.info(f"Loaded {len(documents)} documents from {len(selected_files)} selected files")
+            else:
+                # Use DirectoryLoader to load only .txt files from the specified folder (non-recursive)
+                # Only load .txt files to avoid loading metadata JSON files and other non-document files
+                loader = DirectoryLoader(
+                    str(folder_path),
+                    glob="*.txt",  # Only load .txt files, non-recursive
+                    loader_cls=TextLoader,
+                    loader_kwargs={"encoding": "utf-8"},
+                    silent_errors=True
+                )
+                
+                documents = loader.load()
+                logger.info(f"Loaded {len(documents)} documents from {folder_path}")
             
             # Log which files were loaded for debugging
             if documents:
@@ -499,14 +547,17 @@ Return only the JSON array.
         qa_per_chunk: int = 3, 
         language: str = "繁體中文",
         personas: Optional[List[Dict[str, Any]]] = None,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
+        selected_files: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """Generate complete RAG testset using RAGAS or fallback to LLM (async version)."""
         try:
             logger.info(f"Starting RAG testset generation from {documents_folder}")
+            if selected_files:
+                logger.info(f"Using selected files: {selected_files}")
             
-            # Load documents
-            documents = self.load_documents_from_folder(documents_folder)
+            # Load documents (with optional file selection)
+            documents = self.load_documents_from_folder(documents_folder, selected_files=selected_files)
             if not documents:
                 raise ValueError("No documents found in the specified folder")
             
@@ -516,6 +567,54 @@ Return only the JSON array.
                 raise ValueError("No chunks created from documents")
             
             logger.info(f"Loaded {len(documents)} documents, created {len(chunked_docs)} chunks")
+            
+            # Send initial info via progress callback
+            if progress_callback:
+                # Get list of loaded file names and their status
+                loaded_file_names = []
+                failed_files = []
+                
+                # Track which selected files were successfully loaded
+                if selected_files:
+                    for filename in selected_files:
+                        # Check if this file was loaded by searching documents
+                        file_loaded = False
+                        for doc in documents:
+                            if isinstance(doc, Document) and doc.metadata:
+                                source = doc.metadata.get("source", "unknown")
+                                import os
+                                source_filename = os.path.basename(source)
+                                if source_filename == filename:
+                                    file_loaded = True
+                                    if filename not in loaded_file_names:
+                                        loaded_file_names.append(filename)
+                                    break
+                        if not file_loaded:
+                            failed_files.append(filename)
+                else:
+                    # No file selection, get all loaded files
+                    for doc in documents:
+                        if isinstance(doc, Document) and doc.metadata:
+                            source = doc.metadata.get("source", "unknown")
+                            import os
+                            filename = os.path.basename(source)
+                            if filename not in loaded_file_names:
+                                loaded_file_names.append(filename)
+                
+                await progress_callback({
+                    "type": "generation_info",
+                    "message": "文件載入完成，開始生成 QA Pairs",
+                    "loaded_files": loaded_file_names,
+                    "failed_files": failed_files,
+                    "total_files": len(loaded_file_names),
+                    "total_documents": len(documents),
+                    "total_chunks": len(chunked_docs),
+                    "chunk_size": chunk_size,
+                    "chunk_overlap": chunk_overlap,
+                    "qa_per_chunk": qa_per_chunk,
+                    "selected_files": selected_files if selected_files else None,
+                    "expected_qa_pairs": len(chunked_docs) * qa_per_chunk
+                })
             
             # Try to use RAGAS if available
             all_qa_pairs = []

@@ -7,7 +7,7 @@ import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import pandas as pd
@@ -669,6 +669,7 @@ class GenerateRAGTestsetWithPersonasRequest(BaseModel):
     chunk_size: int = Field(default=5000, ge=100, le=20000)
     chunk_overlap: int = Field(default=200, ge=0, le=1000)
     qa_per_chunk: int = Field(default=3, ge=1, le=10)
+    selected_files: Optional[List[str]] = Field(default=None, description="List of selected file names to use (if None, use all files)")
 
 
 class GenerateAgentTestsetWithPersonasRequest(BaseModel):
@@ -867,7 +868,8 @@ async def generate_rag_testset_with_personas(request: GenerateRAGTestsetWithPers
                         qa_per_chunk=request.qa_per_chunk,
                         language=request.language,
                         personas=personas,
-                        progress_callback=progress_callback
+                        progress_callback=progress_callback,
+                        selected_files=request.selected_files  # Pass selected files list
                     )
                     await progress_queue.put({"type": "generation_complete", "result": result})
                 except Exception as e:
@@ -875,12 +877,27 @@ async def generate_rag_testset_with_personas(request: GenerateRAGTestsetWithPers
             
             # Generate RAG testset with streaming
             logger.info(f"Generating testset from documents folder: {documents_folder}")
+            if request.selected_files:
+                logger.info(f"Selected files: {request.selected_files}")
             try:
-                # Send initial progress
-                yield f"data: {json.dumps({'type': 'start', 'message': '開始生成 QA Pairs...'})}\n\n"
+                # Send initial progress with file info
+                initial_info = {
+                    'type': 'start',
+                    'message': '開始生成 QA Pairs...',
+                    'documents_folder': documents_folder,
+                    'selected_files': request.selected_files if request.selected_files else None,
+                    'chunk_size': request.chunk_size,
+                    'chunk_overlap': request.chunk_overlap,
+                    'qa_per_chunk': request.qa_per_chunk
+                }
+                yield f"data: {json.dumps(initial_info)}\n\n"
                 
                 # Start generation in background
                 generation_task = asyncio.create_task(generate_task())
+                
+                # Initialize result variable
+                result = None
+                generation_complete = False
                 
                 # Stream progress updates
                 while True:
@@ -890,10 +907,12 @@ async def generate_rag_testset_with_personas(request: GenerateRAGTestsetWithPers
                         
                         if progress_data.get("type") == "generation_complete":
                             result = progress_data.get("result")
-                            if not result.get("success", False):
-                                error_msg = result.get("error", "Unknown error occurred")
+                            generation_complete = True
+                            
+                            if not result or not result.get("success", False):
+                                error_msg = result.get("error", "Unknown error occurred") if result else "Generation failed without error message"
                                 yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
-                                break
+                                return
                             
                             # Mark stage complete
                             try:
@@ -915,12 +934,12 @@ async def generate_rag_testset_with_personas(request: GenerateRAGTestsetWithPers
                                 'personas_used': len(personas),
                                 'method': result.get('method', 'llm')
                             })}\n\n"
-                            break
+                            return
                             
                         elif progress_data.get("type") == "generation_error":
                             error_msg = progress_data.get("error", "Unknown error occurred")
                             yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
-                            break
+                            return
                             
                         else:
                             # Send progress update
@@ -929,15 +948,65 @@ async def generate_rag_testset_with_personas(request: GenerateRAGTestsetWithPers
                     except asyncio.TimeoutError:
                         # Check if generation task is done
                         if generation_task.done():
-                            break
+                            # Task completed, try to get any remaining messages
+                            try:
+                                # Check if task had an exception
+                                try:
+                                    generation_task.result()  # This will raise if there was an exception
+                                except Exception as task_exception:
+                                    yield f"data: {json.dumps({'type': 'error', 'message': f'Generation task failed: {str(task_exception)}'})}\n\n"
+                                    return
+                                
+                                # Task completed successfully, try to get the result message
+                                # Wait a bit more for the message to arrive (it might be in queue)
+                                try:
+                                    remaining_data = await asyncio.wait_for(progress_queue.get(), timeout=0.5)
+                                    if remaining_data.get("type") == "generation_complete":
+                                        result = remaining_data.get("result")
+                                        generation_complete = True
+                                        
+                                        if not result or not result.get("success", False):
+                                            error_msg = result.get("error", "Unknown error occurred") if result else "Generation failed without error message"
+                                            yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                                            return
+                                        
+                                        # Mark stage complete
+                                        try:
+                                            output_manager.mark_stage_complete("rag_testset", result)
+                                        except Exception as e:
+                                            logger.warning(f"Failed to mark stage complete: {e}, but testset was generated successfully")
+                                        
+                                        # Send final result
+                                        yield f"data: {json.dumps({
+                                            'type': 'complete',
+                                            'success': True,
+                                            'message': 'RAG testset generated successfully with personas!',
+                                            'scenario_name': output_manager.scenario_name,
+                                            'scenario_folder': str(output_manager.scenario_folder),
+                                            'excel_path': result['excel_path'],
+                                            'total_qa_pairs': result['total_qa_pairs'],
+                                            'total_chunks': result['total_chunks'],
+                                            'total_documents': result['total_documents'],
+                                            'personas_used': len(personas),
+                                            'method': result.get('method', 'llm')
+                                        })}\n\n"
+                                        return
+                                    elif remaining_data.get("type") == "generation_error":
+                                        error_msg = remaining_data.get("error", "Unknown error occurred")
+                                        yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
+                                        return
+                                except asyncio.TimeoutError:
+                                    # No message in queue, but task is done - this shouldn't happen
+                                    logger.error("Generation task completed but no result message found in queue")
+                                    yield f"data: {json.dumps({'type': 'error', 'message': 'Generation completed but no result message received. Please check server logs.'})}\n\n"
+                                    return
+                            except Exception as e:
+                                logger.error(f"Error checking generation task: {e}", exc_info=True)
+                                yield f"data: {json.dumps({'type': 'error', 'message': f'Error checking generation status: {str(e)}'})}\n\n"
+                                return
                         # Send heartbeat to keep connection alive
                         yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
                         continue
-                
-                if not result.get("success", False):
-                    error_msg = result.get("error", "Unknown error occurred")
-                    yield f"data: {json.dumps({'type': 'error', 'message': error_msg})}\n\n"
-                    return
                 
                 # Mark stage complete
                 try:
@@ -1400,12 +1469,19 @@ class UpdatePersonasRequest(BaseModel):
     personas: List[Dict[str, Any]]
 
 
+class UpdateDocumentsRequest(BaseModel):
+    """Request model for updating documents."""
+    metadata_file: str
+    documents: List[Dict[str, Any]]
+
+
 @router.post("/workflow/update-personas")
 async def update_personas(request: UpdatePersonasRequest):
     """Update personas in JSON file after editing."""
     try:
         import json
         from pathlib import Path
+        import uuid
         
         json_path = Path(request.json_path)
         
@@ -1413,9 +1489,22 @@ async def update_personas(request: UpdatePersonasRequest):
         if not json_path.exists():
             raise HTTPException(status_code=404, detail=f"Personas file not found: {json_path}")
         
-        # Save updated personas to JSON file
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(request.personas, f, ensure_ascii=False, indent=2)
+        # Save updated personas to JSON file using atomic write
+        temp_json = json_path.with_suffix('.json.tmp')
+        try:
+            with open(temp_json, 'w', encoding='utf-8') as f:
+                json.dump(request.personas, f, ensure_ascii=False, indent=2)
+            # Atomic rename
+            if json_path.exists():
+                json_path.unlink()
+            temp_json.replace(json_path)
+        except Exception as write_error:
+            if temp_json.exists():
+                try:
+                    temp_json.unlink()
+                except:
+                    pass
+            raise write_error
         
         logger.info(f"Updated {len(request.personas)} personas in {json_path}")
         
@@ -1431,6 +1520,263 @@ async def update_personas(request: UpdatePersonasRequest):
     except Exception as e:
         logger.error(f"Error updating personas: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdateDocumentsRequest(BaseModel):
+    """Request model for updating documents."""
+    metadata_file: str
+    documents: List[Dict[str, Any]]
+
+
+@router.post("/workflow/update-documents")
+async def update_documents(request: UpdateDocumentsRequest):
+    """Update documents metadata and content files after editing."""
+    try:
+        import json
+        from pathlib import Path
+        from datetime import datetime
+        from ai.testset.output_manager import OutputManager
+        
+        metadata_file = Path(OutputManager.map_path_for_docker(request.metadata_file))
+        
+        # Verify the file exists
+        if not metadata_file.exists():
+            raise HTTPException(status_code=404, detail=f"Documents metadata file not found: {metadata_file}")
+        
+        # Get documents folder
+        docs_folder = metadata_file.parent
+        
+        # Update metadata JSON using atomic write
+        temp_metadata = metadata_file.with_suffix('.json.tmp')
+        try:
+            with open(temp_metadata, 'w', encoding='utf-8') as f:
+                json.dump(request.documents, f, ensure_ascii=False, indent=2)
+            # Atomic rename
+            if metadata_file.exists():
+                metadata_file.unlink()
+            temp_metadata.replace(metadata_file)
+        except Exception as write_error:
+            if temp_metadata.exists():
+                try:
+                    temp_metadata.unlink()
+                except:
+                    pass
+            raise write_error
+        
+        # Update individual document text files
+        for doc in request.documents:
+            doc_id = doc.get("document_id", "unknown")
+            title = doc.get("title", "Untitled").replace("/", "_").replace("\\", "_")
+            txt_file = docs_folder / f"{doc_id}_{title}.txt"
+            
+            # Format document content
+            content = f"""# {doc.get('title', 'Untitled')}
+
+分類: {doc.get('category', 'N/A')}
+目標受眾: {doc.get('target_audience', 'N/A')}
+複雜度: {doc.get('complexity_level', 'N/A')}
+關鍵詞: {', '.join(doc.get('keywords', []))}
+
+---
+
+{doc.get('content', '')}
+
+---
+文件ID: {doc_id}
+生成時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+"""
+            
+            # Use atomic write for document files
+            temp_file = txt_file.with_suffix('.txt.tmp')
+            try:
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                # Atomic rename
+                if txt_file.exists():
+                    txt_file.unlink()
+                temp_file.replace(txt_file)
+            except Exception as write_error:
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink()
+                    except:
+                        pass
+                logger.warning(f"Failed to update document file {txt_file}: {write_error}")
+        
+        logger.info(f"Updated {len(request.documents)} documents in {metadata_file}")
+        
+        return {
+            "success": True,
+            "message": f"Successfully updated {len(request.documents)} documents",
+            "metadata_file": str(metadata_file),
+            "total_documents": len(request.documents)
+        }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating documents: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update documents: {str(e)}")
+
+
+class ListDocumentsRequest(BaseModel):
+    """Request model for listing documents in project folder."""
+    output_folder: str
+    scenario_name: str
+
+
+@router.post("/workflow/upload-documents")
+async def upload_documents_to_project(
+    files: List[UploadFile] = File(...),
+    output_folder: str = Form(...),
+    scenario_name: str = Form(...)
+):
+    """Upload documents to project's 02_documents folder."""
+    try:
+        from pathlib import Path
+        from ai.testset.output_manager import OutputManager
+        import uuid
+        
+        # Map path for Docker compatibility
+        output_folder = OutputManager.map_path_for_docker(output_folder)
+        
+        # Construct 02_documents folder path
+        output_manager = OutputManager(output_folder, scenario_name)
+        docs_folder = output_manager.scenario_folder / "02_documents"
+        
+        # Create folder if it doesn't exist
+        docs_folder.mkdir(parents=True, exist_ok=True)
+        
+        uploaded_count = 0
+        uploaded_files = []
+        
+        for file in files:
+            # Validate file type
+            if not file.filename.endswith(('.txt', '.md', '.pdf')):
+                logger.warning(f"Skipping unsupported file type: {file.filename}")
+                continue
+            
+            # Read file content
+            content = await file.read()
+            
+            # Save file using atomic write
+            filename = file.filename.replace('/', '_').replace('\\', '_')
+            temp_file = docs_folder / f"{filename}_{uuid.uuid4().hex[:8]}.tmp"
+            target_file = docs_folder / filename
+            
+            try:
+                with open(temp_file, 'wb') as f:
+                    f.write(content)
+                
+                # Atomic rename
+                if target_file.exists():
+                    target_file.unlink()
+                temp_file.replace(target_file)
+                
+                uploaded_count += 1
+                uploaded_files.append(filename)
+                logger.info(f"Uploaded file: {target_file}")
+            except Exception as write_error:
+                if temp_file.exists():
+                    try:
+                        temp_file.unlink()
+                    except:
+                        pass
+                logger.error(f"Failed to upload {filename}: {write_error}")
+        
+        return {
+            "success": True,
+            "message": f"Successfully uploaded {uploaded_count} files",
+            "uploaded_count": uploaded_count,
+            "uploaded_files": uploaded_files,
+            "documents_folder": str(docs_folder)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error uploading documents: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload documents: {str(e)}")
+
+
+class GetScenarioFolderRequest(BaseModel):
+    """Request model for getting scenario folder path."""
+    output_folder: str
+    scenario_name: str
+
+
+@router.post("/workflow/get-scenario-folder")
+async def get_scenario_folder(request: GetScenarioFolderRequest):
+    """Get the correct scenario folder path using OutputManager."""
+    try:
+        from ai.testset.output_manager import OutputManager
+        
+        # Map path for Docker compatibility
+        output_folder = OutputManager.map_path_for_docker(request.output_folder)
+        
+        # Use OutputManager to get the correct scenario folder
+        output_manager = OutputManager(output_folder, request.scenario_name)
+        
+        return {
+            "success": True,
+            "scenario_folder": str(output_manager.scenario_folder),
+            "base_output_folder": str(output_manager.base_output_folder),
+            "scenario_name": output_manager.scenario_name
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting scenario folder: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get scenario folder: {str(e)}")
+
+
+@router.post("/workflow/list-documents")
+async def list_documents_in_project(request: ListDocumentsRequest):
+    """List all documents in project's 02_documents folder."""
+    try:
+        from pathlib import Path
+        from ai.testset.output_manager import OutputManager
+        
+        # Map path for Docker compatibility
+        output_folder = OutputManager.map_path_for_docker(request.output_folder)
+        
+        # Construct 02_documents folder path using OutputManager
+        output_manager = OutputManager(output_folder, request.scenario_name)
+        docs_folder = output_manager.scenario_folder / "02_documents"
+        
+        if not docs_folder.exists():
+            return {
+                "success": True,
+                "files": [],
+                "message": "02_documents folder does not exist"
+            }
+        
+        # List all supported document files (.txt, .md, .pdf)
+        files = []
+        supported_extensions = ['*.txt', '*.md', '*.pdf']
+        for ext in supported_extensions:
+            for file_path in docs_folder.glob(ext):
+                try:
+                    file_size = file_path.stat().st_size
+                    files.append({
+                        "name": file_path.name,
+                        "size": file_size,
+                        "path": str(file_path),
+                        "extension": file_path.suffix.lower()
+                    })
+                except Exception as e:
+                    logger.warning(f"Error reading file info for {file_path}: {e}")
+        
+        # Sort by name
+        files.sort(key=lambda x: x["name"])
+        
+        return {
+            "success": True,
+            "files": files,
+            "total": len(files),
+            "documents_folder": str(docs_folder)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing documents: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list documents: {str(e)}")
 
 
 @router.post("/workflow/check-existing-testset")

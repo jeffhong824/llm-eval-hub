@@ -500,18 +500,25 @@
                     </div>
                     
                     <div class="form-group" id="rag-custom-docs-input" style="display: none;">
-                        <label for="rag-custom-docs-folder">自定義文件資料夾路徑</label>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <input type="text" id="rag-custom-docs-folder" placeholder="輸入文件資料夾路徑" style="flex: 1;" onblur="normalizeRAGCustomDocsPath()">
-                            <input type="file" id="rag-folder-picker" webkitdirectory directory multiple style="display: none;" onchange="handleRAGFolderSelect(event)">
-                            <button type="button" class="btn btn-secondary" onclick="document.getElementById('rag-folder-picker').click()" style="white-space: nowrap;">
-                                📁 選擇資料夾
+                        <label>上傳文件到專案資料夾</label>
+                        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                            <input type="file" id="rag-file-upload" multiple accept=".txt,.md,.pdf" style="flex: 1;">
+                            <button type="button" class="btn btn-secondary" onclick="uploadRAGFiles()" style="white-space: nowrap;">
+                                📤 上傳文件
                             </button>
                         </div>
-                        <div id="rag-folder-info" class="alert alert-info" style="display: none; margin-top: 10px;">
-                            <!-- 文件夾選擇信息將顯示在這裡 -->
+                        <div id="rag-upload-status" class="alert alert-info" style="display: none; margin-top: 10px;">
+                            <!-- 上傳狀態將顯示在這裡 -->
                         </div>
-                        <small>輸入包含文字檔案的資料夾路徑，或點擊按鈕選擇本地資料夾。系統會讀取所有 .txt, .md, .pdf 等文件。</small>
+                        <small>選擇文件上傳到專案的 02_documents 資料夾。支援 .txt, .md, .pdf 格式。</small>
+                    </div>
+                    
+                    <div class="form-group" id="rag-documents-selection" style="display: none; margin-top: 20px;">
+                        <label>選擇要使用的文件（可多選）</label>
+                        <div id="rag-documents-list" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background: #f9f9f9;">
+                            <p style="color: #666; text-align: center; padding: 20px;">載入中...</p>
+                        </div>
+                        <small>勾選要包含在測試集生成中的文件。預設全選。</small>
                     </div>
                     
                     <div class="form-row">
@@ -1231,27 +1238,15 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    // Store paths
+                    // Store paths and documents
                     workflowState.documents_folder = result.documents_folder;
+                    workflowState.documents_metadata_file = result.metadata_file;
+                    workflowState.documents = result.documents || result.documents_preview || [];
                     
-                    // Show result
+                    // Show documents with edit capability
                     const resultBox = document.getElementById('documents-result');
                     resultBox.style.display = 'block';
-                    resultBox.innerHTML = `
-                        <div class="alert alert-success">
-                            ✅ 成功生成 ${result.total_documents} 份文件！
-                        </div>
-                        <h3>生成結果</h3>
-                        <p><strong>文件資料夾：</strong>${result.documents_folder}</p>
-                        <p><strong>元數據檔案：</strong>${result.metadata_file}</p>
-                        <h4 style="margin-top: 20px;">文件預覽：</h4>
-                        <pre>${JSON.stringify(result.documents_preview, null, 2)}</pre>
-                        <div class="button-group" style="margin-top: 20px;">
-                            <button type="button" class="btn btn-primary" onclick="goToStage(1)" style="padding: 12px 30px; font-size: 16px;">
-                                🚀 下一步：生成測試集
-                            </button>
-                        </div>
-                    `;
+                    showDocumentsWithEdit(result.documents || result.documents_preview || [], result);
                 } else {
                     throw new Error(result.error || '生成失敗');
                 }
@@ -1270,12 +1265,217 @@
         });
         */
 
+        // Show documents with edit capability (similar to showPersonasWithEdit)
+        // Define this early to ensure it's available when called
+        function showDocumentsWithEdit(documents, result) {
+            // Try multiple possible container IDs - doc-generation-status is used during auto-generation
+            let targetDiv = document.getElementById('documents-result') || 
+                           document.getElementById('documents-status') || 
+                           document.getElementById('doc-generation-status');
+            
+            if (!targetDiv) {
+                console.warn('Cannot find documents display container. Trying to create one after personas-result...');
+                // Try to find personas-result and append after it
+                const personasResult = document.getElementById('personas-result');
+                if (personasResult) {
+                    const newDiv = document.createElement('div');
+                    newDiv.id = 'documents-result';
+                    newDiv.style.marginTop = '30px';
+                    personasResult.parentNode.insertBefore(newDiv, personasResult.nextSibling);
+                    targetDiv = newDiv;
+                } else {
+                    console.error('Cannot find personas-result either. Cannot display documents.');
+                    alert('無法找到顯示區域，請刷新頁面重試');
+                    return;
+                }
+            }
+            
+            targetDiv.style.display = 'block';
+            
+            let documentCards = '';
+            documents.forEach((doc, index) => {
+                const docId = doc.document_id || `doc_${String(index + 1).padStart(3, '0')}`;
+                const title = doc.title || 'Untitled';
+                documentCards += `
+                    <div id="document-card-${index}" style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 15px; background: #f9f9f9;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h4 style="margin: 0; color: #667eea;">
+                                <span id="document-title-${index}">${title}</span>
+                            </h4>
+                            <div style="display: flex; gap: 5px;">
+                                <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
+                                    onclick="toggleDocumentEdit(${index})" id="doc-edit-btn-${index}">
+                                    編輯
+                                </button>
+                                <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" 
+                                    onclick="toggleDocumentDetails(${index})" id="doc-details-btn-${index}">
+                                    顯示詳細
+                                </button>
+                            </div>
+                        </div>
+                        <div id="document-summary-${index}" style="margin-bottom: 10px;">
+                            <p style="margin: 5px 0;"><strong>分類：</strong><span id="doc-category-${index}">${doc.category || 'N/A'}</span></p>
+                            <p style="margin: 5px 0;"><strong>目標受眾：</strong><span id="doc-audience-${index}">${doc.target_audience || 'N/A'}</span></p>
+                            <p style="margin: 5px 0;"><strong>複雜度：</strong><span id="doc-complexity-${index}">${doc.complexity_level || 'N/A'}</span></p>
+                            <p style="margin: 5px 0;"><strong>內容預覽：</strong><span id="doc-content-preview-${index}">${(doc.content || '').substring(0, 100)}${(doc.content || '').length > 100 ? '...' : ''}</span></p>
+                        </div>
+                        <div id="document-edit-${index}" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                            <textarea id="document-json-${index}" style="width: 100%; min-height: 400px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">${JSON.stringify(doc, null, 2)}</textarea>
+                            <div style="margin-top: 10px; display: flex; gap: 10px;">
+                                <button type="button" class="btn btn-primary" onclick="saveDocumentEdit(${index})">保存</button>
+                                <button type="button" class="btn btn-secondary" onclick="cancelDocumentEdit(${index})">取消</button>
+                            </div>
+                        </div>
+                        <div id="document-details-${index}" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                            <pre style="background: white; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 400px; overflow-y: auto;">${JSON.stringify(doc, null, 2)}</pre>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            const htmlContent = `
+                <div class="alert alert-success">
+                    ✅ 已載入 ${documents.length} 份文件！
+                </div>
+                <h4 style="margin-top: 20px; margin-bottom: 15px;">所有文件（共 ${documents.length} 份）：</h4>
+                <p style="margin-bottom: 15px; color: #666;">您可以編輯每份文件的詳細資訊，編輯後點擊「保存」按鈕。</p>
+                ${documentCards}
+                <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffc107;">
+                    <strong>💡 提示：</strong> 編輯完成後，請點擊「保存」按鈕以更新文件資訊。所有變更將在生成測試集時使用。
+                </div>
+                <div style="margin-top: 30px; padding: 20px; background: #f0f8ff; border-radius: 8px; border: 2px solid #667eea; text-align: center;">
+                    <p style="margin-bottom: 15px; font-size: 16px; color: #333;">準備好生成測試集了嗎？</p>
+                    <div class="button-group" style="display: flex; gap: 15px; justify-content: center;">
+                        <button type="button" class="btn btn-primary" onclick="goToStage(1)" style="padding: 12px 30px; font-size: 16px;">
+                            🚀 下一步：生成測試集
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // Set innerHTML to the target div
+            targetDiv.innerHTML = htmlContent;
+            targetDiv.style.display = 'block';
+            
+            // Scroll to the documents section
+            setTimeout(() => {
+                targetDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+        }
+        
+        // Toggle document edit mode
+        function toggleDocumentEdit(index) {
+            const editDiv = document.getElementById(`document-edit-${index}`);
+            const detailsDiv = document.getElementById(`document-details-${index}`);
+            const summaryDiv = document.getElementById(`document-summary-${index}`);
+            const editBtn = document.getElementById(`doc-edit-btn-${index}`);
+            
+            if (editDiv && editDiv.style.display === 'none') {
+                editDiv.style.display = 'block';
+                if (detailsDiv) detailsDiv.style.display = 'none';
+                if (summaryDiv) summaryDiv.style.display = 'none';
+                if (editBtn) editBtn.textContent = '取消編輯';
+            } else if (editDiv) {
+                editDiv.style.display = 'none';
+                if (summaryDiv) summaryDiv.style.display = 'block';
+                if (editBtn) editBtn.textContent = '編輯';
+            }
+        }
+        
+        // Toggle document details
+        function toggleDocumentDetails(index) {
+            const detailsDiv = document.getElementById(`document-details-${index}`);
+            const editDiv = document.getElementById(`document-edit-${index}`);
+            const summaryDiv = document.getElementById(`document-summary-${index}`);
+            const detailsBtn = document.getElementById(`doc-details-btn-${index}`);
+            
+            if (detailsDiv && detailsDiv.style.display === 'none') {
+                detailsDiv.style.display = 'block';
+                if (editDiv) editDiv.style.display = 'none';
+                if (summaryDiv) summaryDiv.style.display = 'none';
+                if (detailsBtn) detailsBtn.textContent = '隱藏詳細';
+            } else if (detailsDiv) {
+                detailsDiv.style.display = 'none';
+                if (summaryDiv) summaryDiv.style.display = 'block';
+                if (detailsBtn) detailsBtn.textContent = '顯示詳細';
+            }
+        }
+        
+        // Cancel document edit
+        function cancelDocumentEdit(index) {
+            if (workflowState.documents && workflowState.documents[index]) {
+                const originalDoc = workflowState.documents[index];
+                document.getElementById(`document-json-${index}`).value = JSON.stringify(originalDoc, null, 2);
+            }
+            toggleDocumentEdit(index);
+        }
+        
+        // Save document edit
+        async function saveDocumentEdit(index) {
+            try {
+                const jsonText = document.getElementById(`document-json-${index}`).value;
+                const updatedDocument = JSON.parse(jsonText);
+                
+                // Update workflowState
+                if (workflowState.documents && workflowState.documents[index]) {
+                    workflowState.documents[index] = updatedDocument;
+                }
+                
+                // Update display
+                const titleEl = document.getElementById(`document-title-${index}`);
+                const categoryEl = document.getElementById(`doc-category-${index}`);
+                const audienceEl = document.getElementById(`doc-audience-${index}`);
+                const complexityEl = document.getElementById(`doc-complexity-${index}`);
+                const previewEl = document.getElementById(`doc-content-preview-${index}`);
+                
+                if (titleEl) titleEl.textContent = updatedDocument.title || 'Untitled';
+                if (categoryEl) categoryEl.textContent = updatedDocument.category || 'N/A';
+                if (audienceEl) audienceEl.textContent = updatedDocument.target_audience || 'N/A';
+                if (complexityEl) complexityEl.textContent = updatedDocument.complexity_level || 'N/A';
+                if (previewEl) {
+                    const content = updatedDocument.content || '';
+                    previewEl.textContent = content.substring(0, 100) + (content.length > 100 ? '...' : '');
+                }
+                
+                // Save to backend
+                if (workflowState.documents_metadata_file && workflowState.documents) {
+                    const response = await fetch('/api/v1/testset/workflow/update-documents', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            metadata_file: workflowState.documents_metadata_file,
+                            documents: workflowState.documents
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        alert('✅ 文件已成功保存！');
+                        toggleDocumentEdit(index);
+                    } else {
+                        throw new Error(result.error || '保存失敗');
+                    }
+                } else {
+                    alert('⚠️ 警告：無法保存，缺少必要的路徑資訊');
+                }
+            } catch (error) {
+                console.error('Error saving document:', error);
+                alert(`❌ 保存失敗：${error.message}`);
+            }
+        }
+        
         // Initialize RAG testset form when stage 1 is shown
         function initializeRAGTestsetForm() {
             // Update documents folder option text
             const workflowOption = document.getElementById('rag-workflow-docs-option');
             if (workflowOption) {
                 workflowOption.textContent = `使用工作流程生成的文件 (${workflowState.documents_folder || '未生成'})`;
+            }
+            
+            // Load documents list if in custom mode
+            const useCustom = document.getElementById('rag-use-custom-docs')?.value === 'custom';
+            if (useCustom && workflowState.output_folder && workflowState.scenario_name) {
+                loadRAGDocumentsList();
             }
             
             // Add event listener for RAG testset form if not already added
@@ -1289,7 +1489,137 @@
         // Toggle custom docs input for RAG
         function toggleRAGCustomDocsInput() {
             const useCustom = document.getElementById('rag-use-custom-docs').value === 'custom';
-            document.getElementById('rag-custom-docs-input').style.display = useCustom ? 'block' : 'none';
+            const customInput = document.getElementById('rag-custom-docs-input');
+            const selectionDiv = document.getElementById('rag-documents-selection');
+            
+            customInput.style.display = useCustom ? 'block' : 'none';
+            selectionDiv.style.display = useCustom ? 'block' : 'none';
+            
+            // Load documents list when switching to custom mode
+            if (useCustom && workflowState.output_folder && workflowState.scenario_name) {
+                loadRAGDocumentsList();
+            }
+        }
+        
+        // Upload files to 02_documents folder
+        async function uploadRAGFiles() {
+            const fileInput = document.getElementById('rag-file-upload');
+            const files = fileInput.files;
+            const statusDiv = document.getElementById('rag-upload-status');
+            
+            if (!files || files.length === 0) {
+                alert('請先選擇要上傳的文件');
+                return;
+            }
+            
+            if (!workflowState.output_folder || !workflowState.scenario_name) {
+                alert('請先完成前面的步驟（生成角色和文件）');
+                return;
+            }
+            
+            statusDiv.style.display = 'block';
+            statusDiv.className = 'alert alert-info';
+            statusDiv.innerHTML = `📤 正在上傳 ${files.length} 個文件...`;
+            
+            try {
+                const formData = new FormData();
+                Array.from(files).forEach(file => {
+                    formData.append('files', file);
+                });
+                formData.append('output_folder', workflowState.output_folder);
+                formData.append('scenario_name', workflowState.scenario_name);
+                
+                const response = await fetch('/api/v1/testset/workflow/upload-documents', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    statusDiv.className = 'alert alert-success';
+                    statusDiv.innerHTML = `✅ 成功上傳 ${result.uploaded_count} 個文件到 02_documents 資料夾！`;
+                    
+                    // Clear file input
+                    fileInput.value = '';
+                    
+                    // Reload documents list
+                    await loadRAGDocumentsList();
+                } else {
+                    throw new Error(result.error || '上傳失敗');
+                }
+            } catch (error) {
+                statusDiv.className = 'alert alert-error';
+                statusDiv.innerHTML = `❌ 上傳失敗：${error.message}`;
+            }
+        }
+        
+        // Load documents list from 02_documents folder
+        async function loadRAGDocumentsList() {
+            const listDiv = document.getElementById('rag-documents-list');
+            if (!listDiv) return;
+            
+            if (!workflowState.output_folder || !workflowState.scenario_name) {
+                listDiv.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">請先完成前面的步驟</p>';
+                return;
+            }
+            
+            listDiv.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">載入中...</p>';
+            
+            try {
+                const response = await fetch('/api/v1/testset/workflow/list-documents', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        output_folder: workflowState.output_folder,
+                        scenario_name: workflowState.scenario_name
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success && result.files && result.files.length > 0) {
+                    let checkboxes = '';
+                    result.files.forEach((file, index) => {
+                        const fileSize = file.size ? `(${(file.size / 1024).toFixed(1)} KB)` : '';
+                        checkboxes += `
+                            <div style="padding: 8px; margin: 5px 0; background: white; border-radius: 4px; display: flex; align-items: center; gap: 10px;">
+                                <input type="checkbox" id="rag-doc-${index}" value="${file.name}" checked style="cursor: pointer; width: 18px; height: 18px; min-width: 18px; flex-shrink: 0;">
+                                <label for="rag-doc-${index}" style="flex: 1; cursor: pointer; margin: 0; font-size: 14px;">
+                                    <strong>${file.name}</strong> ${fileSize}
+                                </label>
+                            </div>
+                        `;
+                    });
+                    
+                    listDiv.innerHTML = `
+                        <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                            <span><strong>共 ${result.files.length} 個文件</strong></span>
+                            <div>
+                                <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" onclick="selectAllRAGDocuments(true)">全選</button>
+                                <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" onclick="selectAllRAGDocuments(false)">全不選</button>
+                            </div>
+                        </div>
+                        ${checkboxes}
+                    `;
+                } else {
+                    listDiv.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">02_documents 資料夾中沒有文件</p>';
+                }
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: #d32f2f; text-align: center; padding: 20px;">載入失敗：${error.message}</p>`;
+            }
+        }
+        
+        // Select/deselect all documents
+        function selectAllRAGDocuments(select) {
+            const checkboxes = document.querySelectorAll('#rag-documents-list input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = select);
+        }
+        
+        // Get selected documents
+        function getSelectedRAGDocuments() {
+            const checkboxes = document.querySelectorAll('#rag-documents-list input[type="checkbox"]:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
         }
         
         // Normalize RAG custom docs path
@@ -1385,11 +1715,49 @@
                 }
             }
             
-            // Determine documents folder
+            // Determine documents folder and selected files
             const useCustom = document.getElementById('rag-use-custom-docs').value === 'custom';
-            const documentsFolder = useCustom 
-                ? document.getElementById('rag-custom-docs-folder').value 
+            let documentsFolder = useCustom 
+                ? null  // Will use project's 02_documents folder
                 : workflowState.documents_folder;
+            
+            // If using custom, get selected files
+            let selected_files = null;
+            if (useCustom) {
+                selected_files = getSelectedRAGDocuments();
+                if (selected_files.length === 0) {
+                    alert('請至少選擇一個文件');
+                    return;
+                }
+                // Use project's 02_documents folder
+                // Use OutputManager to get the correct scenario folder path
+                if (workflowState.output_folder && workflowState.scenario_name) {
+                    // Get the correct scenario folder path from backend
+                    try {
+                        const pathResponse = await fetch('/api/v1/testset/workflow/get-scenario-folder', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                output_folder: workflowState.output_folder,
+                                scenario_name: workflowState.scenario_name
+                            })
+                        });
+                        const pathResult = await pathResponse.json();
+                        if (pathResult.success) {
+                            documentsFolder = `${pathResult.scenario_folder}/02_documents`;
+                        } else {
+                            throw new Error(pathResult.error || 'Failed to get scenario folder path');
+                        }
+                    } catch (error) {
+                        console.error('Error getting scenario folder path:', error);
+                        alert(`無法獲取專案資料夾路徑：${error.message}`);
+                        return;
+                    }
+                } else {
+                    alert('請先完成前面的步驟（生成角色和文件）');
+                    return;
+                }
+            }
             
             const formData = {
                 documents_folder: documentsFolder,
@@ -1401,14 +1769,45 @@
                 language: '繁體中文',
                 chunk_size: parseInt(document.getElementById('rag-chunk-size').value),
                 chunk_overlap: parseInt(document.getElementById('rag-chunk-overlap').value),
-                qa_per_chunk: parseInt(document.getElementById('rag-qa-per-chunk').value)
+                qa_per_chunk: parseInt(document.getElementById('rag-qa-per-chunk').value),
+                selected_files: selected_files  // List of selected file names
             };
             
             try {
                 // Initialize progress display
                 const resultBox = document.getElementById('rag-testset-result');
                 resultBox.style.display = 'block';
+                
+                // Show input files info before starting
+                let inputFilesInfo = '';
+                if (selected_files && selected_files.length > 0) {
+                    inputFilesInfo = `
+                        <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #2196f3;">
+                            <h4 style="margin: 0 0 10px 0; color: #1976d2;">📋 輸入文件資訊</h4>
+                            <p style="margin: 5px 0;"><strong>選擇的文件（${selected_files.length} 個）：</strong></p>
+                            <ul style="margin: 5px 0; padding-left: 20px;">
+                                ${selected_files.map(f => `<li>${f}</li>`).join('')}
+                            </ul>
+                            <p style="margin: 5px 0;"><strong>文件分塊大小：</strong>${formData.chunk_size}</p>
+                            <p style="margin: 5px 0;"><strong>分塊重疊：</strong>${formData.chunk_overlap}</p>
+                            <p style="margin: 5px 0;"><strong>每個分塊的 QA 數量：</strong>${formData.qa_per_chunk}</p>
+                        </div>
+                    `;
+                } else {
+                    inputFilesInfo = `
+                        <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #2196f3;">
+                            <h4 style="margin: 0 0 10px 0; color: #1976d2;">📋 輸入文件資訊</h4>
+                            <p style="margin: 5px 0;"><strong>使用文件：</strong>全部文件</p>
+                            <p style="margin: 5px 0;"><strong>文件資料夾：</strong>${formData.documents_folder}</p>
+                            <p style="margin: 5px 0;"><strong>文件分塊大小：</strong>${formData.chunk_size}</p>
+                            <p style="margin: 5px 0;"><strong>分塊重疊：</strong>${formData.chunk_overlap}</p>
+                            <p style="margin: 5px 0;"><strong>每個分塊的 QA 數量：</strong>${formData.qa_per_chunk}</p>
+                        </div>
+                    `;
+                }
+                
                 resultBox.innerHTML = `
+                    ${inputFilesInfo}
                     <div style="margin-bottom: 15px;">
                         <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                             <strong>RAG 測試集生成進度</strong>
@@ -1419,6 +1818,10 @@
                         </div>
                     </div>
                     <div id="rag-progress-message" style="margin-bottom: 10px; color: #666;">連接 API...</div>
+                    <div id="rag-generation-info" style="background: #f5f5f5; padding: 10px; border-radius: 5px; margin-bottom: 10px; display: none;">
+                        <div style="font-weight: bold; margin-bottom: 5px;">📊 生成資訊：</div>
+                        <div id="rag-generation-info-content" style="font-size: 12px;"></div>
+                    </div>
                     <div id="rag-qa-pairs-list" style="max-height: 300px; overflow-y: auto; margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 5px;">
                         <div style="font-weight: bold; margin-bottom: 5px;">已生成的 QA Pairs:</div>
                         <div id="rag-qa-pairs-content" style="font-size: 12px;"></div>
@@ -1465,7 +1868,87 @@
                                 const data = JSON.parse(line.slice(6));
                                 
                                 if (data.type === 'start') {
-                                    updateRAGProgress(10, data.message || '開始生成...');
+                                    updateRAGProgress(5, data.message || '開始生成...');
+                                    
+                                    // Show input files info if available
+                                    if (data.selected_files || data.documents_folder) {
+                                        const infoDiv = document.getElementById('rag-generation-info');
+                                        const infoContent = document.getElementById('rag-generation-info-content');
+                                        if (infoDiv && infoContent) {
+                                            let infoHtml = '';
+                                            if (data.selected_files && data.selected_files.length > 0) {
+                                                infoHtml = `
+                                                    <p><strong>選擇的文件（${data.selected_files.length} 個）：</strong></p>
+                                                    <ul style="margin: 5px 0; padding-left: 20px;">
+                                                        ${data.selected_files.map(f => `<li>${f}</li>`).join('')}
+                                                    </ul>
+                                                `;
+                                            } else {
+                                                infoHtml = `<p><strong>使用文件：</strong>全部文件</p>`;
+                                            }
+                                            infoHtml += `
+                                                <p><strong>文件資料夾：</strong>${data.documents_folder || 'N/A'}</p>
+                                                <p><strong>分塊大小：</strong>${data.chunk_size || 'N/A'}</p>
+                                                <p><strong>分塊重疊：</strong>${data.chunk_overlap || 'N/A'}</p>
+                                                <p><strong>每個分塊的 QA 數量：</strong>${data.qa_per_chunk || 'N/A'}</p>
+                                            `;
+                                            infoContent.innerHTML = infoHtml;
+                                            infoDiv.style.display = 'block';
+                                        }
+                                    }
+                                } else if (data.type === 'generation_info') {
+                                    // Show detailed generation info (files loaded, chunks created)
+                                    updateRAGProgress(10, data.message || '文件載入完成');
+                                    
+                                    const infoDiv = document.getElementById('rag-generation-info');
+                                    const infoContent = document.getElementById('rag-generation-info-content');
+                                    if (infoDiv && infoContent) {
+                                        let infoHtml = '';
+                                        
+                                        // Show selected files vs loaded files
+                                        if (data.selected_files && data.selected_files.length > 0) {
+                                            infoHtml += `
+                                                <p><strong>📋 選擇的文件（${data.selected_files.length} 個）：</strong></p>
+                                                <ul style="margin: 5px 0; padding-left: 20px; max-height: 80px; overflow-y: auto;">
+                                                    ${data.selected_files.map(f => `<li>${f}</li>`).join('')}
+                                                </ul>
+                                            `;
+                                        }
+                                        
+                                        // Show successfully loaded files
+                                        if (data.loaded_files && data.loaded_files.length > 0) {
+                                            infoHtml += `
+                                                <p style="color: #4caf50; margin-top: 10px;"><strong>✅ 已載入文件（${data.total_files || data.loaded_files.length} 個）：</strong></p>
+                                                <ul style="margin: 5px 0; padding-left: 20px; max-height: 100px; overflow-y: auto; color: #4caf50;">
+                                                    ${data.loaded_files.map(f => `<li>${f}</li>`).join('')}
+                                                </ul>
+                                            `;
+                                        }
+                                        
+                                        // Show failed files if any
+                                        if (data.failed_files && data.failed_files.length > 0) {
+                                            infoHtml += `
+                                                <p style="color: #d32f2f; margin-top: 10px;"><strong>❌ 載入失敗的文件（${data.failed_files.length} 個）：</strong></p>
+                                                <ul style="margin: 5px 0; padding-left: 20px; max-height: 80px; overflow-y: auto; color: #d32f2f;">
+                                                    ${data.failed_files.map(f => `<li>${f}</li>`).join('')}
+                                                </ul>
+                                            `;
+                                        }
+                                        
+                                        infoHtml += `
+                                            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                                                <p><strong>📄 原始文件數：</strong>${data.total_documents || 'N/A'}</p>
+                                                <p><strong>✂️ 分塊數量：</strong>${data.total_chunks || 'N/A'}</p>
+                                                <p><strong>📏 分塊大小：</strong>${data.chunk_size || 'N/A'}</p>
+                                                <p><strong>🔄 分塊重疊：</strong>${data.chunk_overlap || 'N/A'}</p>
+                                                <p><strong>❓ 每個分塊的 QA 數量：</strong>${data.qa_per_chunk || 'N/A'}</p>
+                                                ${data.expected_qa_pairs ? `<p><strong>🎯 預期生成 QA 對數：</strong>約 ${data.expected_qa_pairs} 個</p>` : ''}
+                                            </div>
+                                            <p style="color: #4caf50; font-weight: bold; margin-top: 10px;">✅ 配置正確，開始生成 QA Pairs...</p>
+                                        `;
+                                        infoContent.innerHTML = infoHtml;
+                                        infoDiv.style.display = 'block';
+                                    }
                                 } else if (data.type === 'qa_pair_generated') {
                                     const progress = data.progress_percent || 0;
                                     const total = data.total_generated || 0;
@@ -1845,6 +2328,7 @@
                                 const documentsResponse = await fetch(`/api/v1/testset/workflow/load-documents?metadata_path=${encodeURIComponent(result.documents_metadata_path)}`);
                                 documentsData = await documentsResponse.json();
                                 workflowState.documents = documentsData.documents || [];
+                                workflowState.documents_metadata_file = result.documents_metadata_path;
                             } catch (docError) {
                                 console.error('Error loading documents:', docError);
                             }
@@ -1852,6 +2336,35 @@
                         
                         // Show personas with edit capability
                         showPersonasWithEdit(workflowState.personas, result);
+                        
+                        // Show documents with edit capability if available
+                        if (documentsData && documentsData.documents && documentsData.documents.length > 0) {
+                            // Create a temporary result object for showDocumentsWithEdit
+                            const docResult = {
+                                documents_folder: result.documents_folder,
+                                metadata_file: result.documents_metadata_path,
+                                total_documents: documentsData.total || documentsData.documents.length
+                            };
+                            // Show documents in a separate section after personas
+                            setTimeout(() => {
+                                const personasResult = document.getElementById('personas-result');
+                                if (personasResult) {
+                                    const documentsSection = document.createElement('div');
+                                    documentsSection.id = 'existing-documents-section';
+                                    documentsSection.style.marginTop = '30px';
+                                    personasResult.parentNode.insertBefore(documentsSection, personasResult.nextSibling);
+                                    
+                                    // Temporarily set documents-result to the new section
+                                    const originalResultBox = document.getElementById('documents-result');
+                                    documentsSection.id = 'documents-result-temp';
+                                    showDocumentsWithEdit(documentsData.documents, docResult);
+                                    // Restore original
+                                    if (originalResultBox) {
+                                        documentsSection.id = 'existing-documents-section';
+                                    }
+                                }
+                            }, 100);
+                        }
                         
                         // Show info with option to proceed
                         const documentsInfo = documentsData ? `<p><strong>文件數量：</strong>${documentsData.total || 0}</p>` : '';
@@ -1862,7 +2375,7 @@
                                 ${documentsInfo}
                                 <p><strong>情境名稱：</strong>${result.scenario_name || 'N/A'}</p>
                                 <p><strong>專案資料夾：</strong>${result.scenario_folder || result.documents_folder}</p>
-                                <p style="margin-top: 10px; color: #666;">已載入資料，您可以編輯角色或直接跳到下一步。</p>
+                                <p style="margin-top: 10px; color: #666;">已載入資料，您可以編輯角色或文件，或直接跳到下一步。</p>
                                 <div class="button-group" style="margin-top: 15px; display: flex; gap: 10px;">
                                     <button type="button" class="btn btn-primary" onclick="goToStage(1)" style="flex: 1;">
                                         🚀 下一步：生成測試集
@@ -2068,22 +2581,13 @@
                     addDocLog('🎉 所有生成任務完成！', 'success');
                     
                     workflowState.documents_folder = result.documents_folder;
+                    workflowState.documents_metadata_file = result.metadata_file;
+                    workflowState.documents = result.documents || result.documents_preview || [];
                     
                     await new Promise(resolve => setTimeout(resolve, 500));
                     
-                    statusDiv.innerHTML += `
-                        <div class="alert alert-success" style="margin-top: 15px;">
-                            ✅ 角色和文件生成完成！
-                            <p><strong>角色數：</strong>${result.total_personas || 'N/A'}</p>
-                            <p><strong>文件數：</strong>${result.total_documents}</p>
-                            <p><strong>文件資料夾：</strong>${result.documents_folder}</p>
-                        </div>
-                        <div class="button-group" style="margin-top: 15px;">
-                            <button type="button" class="btn btn-primary" onclick="goToStage(1)" style="padding: 12px 30px; font-size: 16px;">
-                                🚀 下一步：生成測試集
-                            </button>
-                        </div>
-                    `;
+                    // Show documents with edit capability
+                    showDocumentsWithEdit(result.documents || result.documents_preview || [], result);
                 } else {
                     throw new Error(result.error || '生成失敗');
                 }
